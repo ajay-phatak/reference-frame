@@ -13,9 +13,12 @@ requires-python = ">=3.11,<3.13"
 # numeric packages are pinned to the SAME versions as the 3.14 source env so
 # report/gap float formatting stays byte-identical across the two interpreters.
 #
-# opencv-python-headless replaces the source's opencv-python (same 4.13.0.92):
-# nothing in the report path calls cv2 (seed previews use cv2.imwrite only), and
-# headless avoids bundling GUI/Qt libs into the frozen exe.
+# opencv-python matches the source's opencv-python (same 4.13.0.92). NOTE: the
+# headless variant cannot be used here — rtmlib hard-depends on the non-headless
+# opencv-python (unpinned), so declaring headless left TWO cv2 packages in the
+# env and pip's resolver pulled opencv-python/opencv-contrib-python 5.0.0.93,
+# making cv2 resolve to 5.0 and mismatch the source (4.13.0.92). Pinning the
+# non-headless opencv-python here keeps a single cv2 at the source version.
 #
 # torch / torchvision are NOT listed here: they arrive transitively via
 # ultralytics. The build venv must install the CPU-only torch wheel FIRST
@@ -26,7 +29,7 @@ dependencies = [
     "ultralytics==8.4.39",         # YOLOv8-pose multi-person tracking (pass 1); pulls torch
     "rtmlib==0.0.15",              # RTMPose top-down refinement, Halpe-26 w/ feet (pass 2)
     "onnxruntime==1.27.0",         # inference backend for rtmlib
-    "opencv-python-headless==4.13.0.92",  # video I/O (headless: no imshow used)
+    "opencv-python==4.13.0.92",    # video I/O (rtmlib forces non-headless opencv-python)
     "numpy==2.4.4",
     "scipy==1.17.1",               # signal processing (Savitzky-Golay, FFT, peaks)
     "librosa==0.11.0",             # beat / tempo detection (pulls numba, llvmlite)

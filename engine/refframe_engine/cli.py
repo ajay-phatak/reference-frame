@@ -118,10 +118,13 @@ def _build_parser():
 # ── command handlers ─────────────────────────────────────────────────────────
 
 def _cmd_analyze(args):
-    _patch_checkpoint_dir(args.data_dir)
     from . import run
     try:
         with _capture():
+            # Inside capture: importing the vendored chain pulls in ultralytics,
+            # which prints raw lines to stdout when creating a fresh settings
+            # file (would corrupt the NDJSON stream).
+            _patch_checkpoint_dir(args.data_dir)
             run.analyze(
                 args.input, args.out_dir, args.data_dir,
                 me=args.me, me_id=args.me_id, role=args.role,
@@ -156,11 +159,11 @@ def _cmd_analyze(args):
 
 
 def _cmd_seed_preview(args):
-    _patch_checkpoint_dir(args.data_dir)
     import pathlib
     from . import run
     try:
         with _capture():
+            _patch_checkpoint_dir(args.data_dir)
             video_path, _ = run.resolve_input(args.input, args.out_dir, args.data_dir)
             run.seed_preview(pathlib.Path(video_path), args.at, args.out_dir,
                              args.data_dir, pose_letter=args.pose_model)
@@ -180,10 +183,10 @@ def _cmd_seed_preview(args):
 
 
 def _cmd_setup(args):
-    _patch_checkpoint_dir(args.data_dir)
     from . import setup_models
     try:
         with _capture():
+            _patch_checkpoint_dir(args.data_dir)
             setup_models.setup(args.data_dir, pose_letter=args.pose_model,
                                refine_mode=args.refine_mode)
     except RuntimeError as ex:
@@ -198,9 +201,9 @@ def _cmd_doctor(args):
 
 
 def _cmd_export_baseline(args):
-    _patch_checkpoint_dir(args.data_dir if hasattr(args, "data_dir") else None)
     from . import baselines
     with _capture():
+        _patch_checkpoint_dir(args.data_dir if hasattr(args, "data_dir") else None)
         res = baselines.export_baseline(
             args.video, args.poses, label=args.label, couple=args.couple,
             lead_id=args.lead_id, out=args.out)
