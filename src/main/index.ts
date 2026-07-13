@@ -1,5 +1,6 @@
 import { app, shell, dialog, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
+import { existsSync, readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { EngineJob, EngineEvent, proRefsPath } from './engine'
@@ -95,6 +96,9 @@ app.whenReady().then(() => {
     poseModel: string
     comparePros: boolean
     partnerName?: string | null
+    seedMeIdx?: number | null
+    seedPartnerIdx?: number | null
+    runId?: string | null
   }
 
   ipcMain.handle('engine:analyze', async (event, opts: AnalyzeArgs) => {
@@ -111,7 +115,19 @@ app.whenReady().then(() => {
       comparePros: opts.comparePros
     }
     const partnerName = opts.partnerName ?? config.partnerName
-    const { runId, dir } = library.createRun(dataDir(), opts.input, runOptions, partnerName)
+
+    let runId: string
+    let dir: string
+    if (opts.runId) {
+      const reused = library.beginRerun(dataDir(), opts.runId, runOptions, partnerName)
+      if (!reused) return { ok: false, reason: 'run not found' }
+      runId = reused.runId
+      dir = reused.dir
+    } else {
+      const created = library.createRun(dataDir(), opts.input, runOptions, partnerName)
+      runId = created.runId
+      dir = created.dir
+    }
 
     const args = [
       'analyze',
@@ -131,6 +147,8 @@ app.whenReady().then(() => {
     if (opts.partner) args.push('--partner')
     if (opts.spotlight) args.push('--spotlight')
     if (opts.comparePros) args.push('--compare-pros', '--pro-refs', proRefsPath())
+    if (opts.seedMeIdx != null) args.push('--seed-me-idx', String(opts.seedMeIdx))
+    if (opts.seedPartnerIdx != null) args.push('--seed-partner-idx', String(opts.seedPartnerIdx))
 
     const job = new EngineJob()
     activeJob = job
@@ -181,9 +199,111 @@ app.whenReady().then(() => {
     return { exitCode, result, error }
   })
 
-  // engine:setup and engine:seedPreview (crowd-mode picker, first-run weight
-  // download) are phase 3 — the `setup` and `seed-preview` engine subcommands
-  // already exist, but there's no onboarding/seed UI yet to drive them.
+  ipcMain.handle('engine:setup', async (event, opts: { poseModel: string }) => {
+    if (activeJob) return { ok: false, reason: 'busy' }
+
+    let result: EngineEvent | null = null
+    let error: EngineEvent | null = null
+    const job = new EngineJob()
+    activeJob = job
+    try {
+      const exitCode = await job.run(
+        ['setup', '--data-dir', dataDir(), '--pose-model', opts.poseModel],
+        (e: EngineEvent) => {
+          if (e.event === 'result') result = e
+          if (e.event === 'error') error = e
+          event.sender.send('engine:event', e)
+        }
+      )
+      return { exitCode, result, error }
+    } finally {
+      activeJob = null
+    }
+  })
+
+  interface SeedPreviewArgs {
+    input: string
+    atSec: number
+    poseModel: string
+    runId?: string | null
+    me: 'left' | 'right'
+    role: 'lead' | 'follow'
+    partner: boolean
+    spotlight: boolean
+    comparePros: boolean
+    partnerName?: string | null
+  }
+
+  ipcMain.handle('engine:seedPreview', async (event, opts: SeedPreviewArgs) => {
+    if (activeJob) return { ok: false, reason: 'busy' }
+
+    let runId: string
+    let dir: string
+    if (opts.runId) {
+      dir = library.runDirPath(dataDir(), opts.runId)
+      if (!existsSync(dir)) return { ok: false, reason: 'run not found' }
+      runId = opts.runId
+    } else {
+      const config = loadConfig()
+      const runOptions: RunOptions = {
+        me: opts.me,
+        meId: null,
+        role: opts.role,
+        partner: opts.partner,
+        spotlight: opts.spotlight,
+        poseModel: opts.poseModel,
+        comparePros: opts.comparePros
+      }
+      const partnerName = opts.partnerName ?? config.partnerName
+      const created = library.createRun(dataDir(), opts.input, runOptions, partnerName)
+      runId = created.runId
+      dir = created.dir
+    }
+
+    const args = [
+      'seed-preview',
+      opts.input,
+      '--at',
+      String(opts.atSec),
+      '--out-dir',
+      dir,
+      '--data-dir',
+      dataDir(),
+      '--pose-model',
+      opts.poseModel
+    ]
+
+    const job = new EngineJob()
+    activeJob = job
+    let resultEvent: EngineEvent | undefined
+    let errorMsg: string | undefined
+    try {
+      const exitCode = await job.run(args, (e: EngineEvent) => {
+        if (e.event === 'result') resultEvent = e
+        if (e.event === 'error' && typeof e.msg === 'string') errorMsg = e.msg
+        event.sender.send('engine:event', e)
+      })
+      if (exitCode === 0 && resultEvent && resultEvent.kind === 'seed_preview') {
+        const seedPngPath = String(resultEvent.seed_png ?? '')
+        const image = `data:image/png;base64,${readFileSync(seedPngPath).toString('base64')}`
+        return {
+          ok: true,
+          runId,
+          dets: resultEvent.dets,
+          frameIdx: resultEvent.frame_idx,
+          tSec: resultEvent.t_sec,
+          video: resultEvent.video_path,
+          image
+        }
+      }
+      const reason = errorMsg ?? `engine exited with code ${exitCode}`
+      return { ok: false, runId, reason }
+    } catch (err) {
+      return { ok: false, runId, reason: String(err) }
+    } finally {
+      activeJob = null
+    }
+  })
 
   ipcMain.handle('library:list', () => library.list(dataDir()))
   ipcMain.handle('library:get', (_e, runId: string) => library.get(dataDir(), runId))

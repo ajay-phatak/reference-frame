@@ -23,6 +23,15 @@ function statusClass(status: RunRecord['status']): string {
   return 'muted'
 }
 
+// A YouTube URL has no captured title anywhere in run.json — show a small
+// "YouTube <id>" chip instead, reusing the same 11-char-id regex library.ts's
+// stemFromInput uses so the id we show matches the one baked into the runId.
+function sourceLabel(source: RunRecord['source'], input: string): string | null {
+  if (source !== 'url') return null
+  const m = input.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
+  return m ? `YouTube ${m[1]}` : input.length > 40 ? `${input.slice(0, 40)}…` : input
+}
+
 function Library({ onOpen }: Props): React.JSX.Element {
   const [runs, setRuns] = useState<RunRecord[] | null>(null)
 
@@ -52,23 +61,27 @@ function Library({ onOpen }: Props): React.JSX.Element {
         </div>
       )}
 
-      {runs.map((run) => (
-        <div className="card card-click" key={run.runId} onClick={() => onOpen(run.runId)}>
-          <div className="row-between">
-            <h3 className="h-inline">
-              {run.videoName}{' '}
-              {run.options.spotlight && <span className="chip chip-even">spotlight</span>}
-            </h3>
-            <button className="btn-sm" onClick={(e) => remove(e, run.runId)}>
-              Delete
-            </button>
+      {runs.map((run) => {
+        const srcLabel = sourceLabel(run.source, run.input)
+        return (
+          <div className="card card-click" key={run.runId} onClick={() => onOpen(run.runId)}>
+            <div className="row-between">
+              <h3 className="h-inline">
+                {run.videoName}{' '}
+                {run.options.spotlight && <span className="chip chip-even">spotlight</span>}{' '}
+                {srcLabel && <span className="chip chip-even">{srcLabel}</span>}
+              </h3>
+              <button className="btn-sm" onClick={(e) => remove(e, run.runId)}>
+                Delete
+              </button>
+            </div>
+            <p className="muted small" style={{ margin: 0 }}>
+              {fmtDate(run.createdAt)} · {run.options.role} · {run.partnerName ?? 'no partner name'}{' '}
+              · <span className={statusClass(run.status)}>{run.status}</span>
+            </p>
           </div>
-          <p className="muted small" style={{ margin: 0 }}>
-            {fmtDate(run.createdAt)} · {run.options.role} · {run.partnerName ?? 'no partner name'} ·{' '}
-            <span className={statusClass(run.status)}>{run.status}</span>
-          </p>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

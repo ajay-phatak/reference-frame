@@ -168,6 +168,27 @@ export function completeRun(
   return record
 }
 
+// Reuse an existing run dir for a rerun (crowd-mode seed flow's second call, or
+// swap-dancers): updates options/partnerName, resets status to 'pending' so the
+// UI reflects work in progress, but leaves resultPaths/youId/coverage from the
+// previous completion in place until completeRun/failRun overwrite them (so a
+// failed rerun doesn't blank out a previously-successful report).
+export function beginRerun(
+  dataDir: string,
+  runId: string,
+  options: RunOptions,
+  partnerName: string | null
+): { runId: string; dir: string } | null {
+  const record = readRun(dataDir, runId)
+  if (!record) return null
+  record.options = options
+  record.partnerName = partnerName
+  record.status = 'pending'
+  record.updatedAt = new Date().toISOString()
+  writeRun(dataDir, record)
+  return { runId, dir: runDirPath(dataDir, runId) }
+}
+
 export function failRun(dataDir: string, runId: string, reason: string): RunRecord | null {
   const record = readRun(dataDir, runId)
   if (!record) return null

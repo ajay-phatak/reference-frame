@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppConfig, UpdateCheck } from '../../preload/index.d'
 import Analyze from './views/Analyze'
 import Library from './views/Library'
+import Onboarding from './views/Onboarding'
 import Report from './views/Report'
 import Settings from './views/Settings'
 
@@ -31,6 +32,10 @@ function App(): React.JSX.Element {
   const goTo = (v: View): void => {
     setRunId(null)
     setView(v)
+  }
+
+  if (config && !config.onboarded) {
+    return <Onboarding onDone={setConfig} />
   }
 
   return (

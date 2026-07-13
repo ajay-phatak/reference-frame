@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { AppConfig, EngineEvent } from '../../../preload/index.d'
+import type { AppConfig, EngineEvent, SeedDetection } from '../../../preload/index.d'
 
 interface Props {
   config: AppConfig
@@ -13,9 +13,19 @@ interface StageState {
   startedAt: number
 }
 
-const STAGE_ORDER = ['download', 'extract', 'refine', 'lift', 'metrics', 'report', 'gap'] as const
+const STAGE_ORDER = [
+  'download',
+  'seed',
+  'extract',
+  'refine',
+  'lift',
+  'metrics',
+  'report',
+  'gap'
+] as const
 const STAGE_LABELS: Record<string, string> = {
   download: 'Download video',
+  seed: 'Locate dancers',
   extract: 'Detect poses',
   refine: 'Refine keypoints',
   lift: 'Lift to 3D',
@@ -44,6 +54,10 @@ function etaLabel(s: StageState): string | null {
   return secs < 60 ? `~${secs}s left` : `~${Math.round(secs / 60)}m left`
 }
 
+function looksLikeYoutubeUrl(s: string): boolean {
+  return /^https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)/i.test(s)
+}
+
 function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
   const [inputMode, setInputMode] = useState<'file' | 'url'>('file')
   const [filePath, setFilePath] = useState('')
@@ -63,6 +77,25 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
   const [showLog, setShowLog] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
+  // Crowd-mode seed picker: two-step flow (seed-preview -> analyze) so the
+  // user can pick themselves out of a crowd shot before the real run starts.
+  const [crowdMode, setCrowdMode] = useState(false)
+  const [atSec, setAtSec] = useState(30)
+  const [seedRunId, setSeedRunId] = useState<string | null>(null)
+  const [seedImage, setSeedImage] = useState<string | null>(null)
+  const [seedDets, setSeedDets] = useState<SeedDetection[] | null>(null)
+  const [seedVideo, setSeedVideo] = useState<string | null>(null)
+  const [seedFrameIdx, setSeedFrameIdx] = useState<number | undefined>(undefined)
+  const [seedTSec, setSeedTSec] = useState<number | undefined>(undefined)
+  const [seedMeIdx, setSeedMeIdx] = useState<number | null>(null)
+  const [seedPartnerIdx, setSeedPartnerIdx] = useState<number | null>(null)
+  const [seedLoading, setSeedLoading] = useState(false)
+  const [seedError, setSeedError] = useState<string | null>(null)
+  const [seedImgNatural, setSeedImgNatural] = useState<{ w: number; h: number } | null>(null)
+  const [seedStageProgress, setSeedStageProgress] = useState<Record<string, StageState>>({})
+  const [seedLogs, setSeedLogs] = useState<string[]>([])
+  const [seedShowLog, setSeedShowLog] = useState(false)
+
   const pickFile = async (): Promise<void> => {
     const path = await window.api.pickVideoFile()
     if (path) setFilePath(path)
@@ -70,8 +103,95 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
 
   const input = inputMode === 'file' ? filePath : url.trim()
 
+  const findUs = async (): Promise<void> => {
+    if (!input || seedLoading) return
+    setSeedLoading(true)
+    setSeedError(null)
+    setSeedStageProgress({})
+    setSeedLogs([])
+
+    const unsubscribe = window.api.onEngineEvent((e: EngineEvent) => {
+      if (e.event === 'progress' && typeof e.stage === 'string') {
+        const stage = e.stage
+        setSeedStageProgress((prev) => ({
+          ...prev,
+          [stage]: {
+            current: typeof e.current === 'number' ? e.current : 0,
+            total: typeof e.total === 'number' ? e.total : 0,
+            detail: typeof e.detail === 'string' ? e.detail : undefined,
+            startedAt: prev[stage]?.startedAt ?? Date.now()
+          }
+        }))
+      } else if (e.event === 'log') {
+        setSeedLogs((prev) => [...prev, String(e.msg ?? '')])
+      } else if (e.event === 'error') {
+        setSeedError(String(e.msg ?? 'Engine error'))
+      }
+    })
+
+    try {
+      const res = await window.api.seedPreview({
+        input,
+        atSec,
+        poseModel,
+        runId: seedRunId,
+        me,
+        role,
+        partner: partnerToggle,
+        spotlight,
+        comparePros,
+        partnerName: partnerName.trim() || null
+      })
+      if (res.ok) {
+        setSeedRunId(res.runId ?? null)
+        setSeedImage(res.image ?? null)
+        setSeedDets(res.dets ?? [])
+        setSeedVideo(res.video ?? null)
+        setSeedFrameIdx(res.frameIdx)
+        setSeedTSec(res.tSec)
+        setSeedMeIdx(null)
+        setSeedPartnerIdx(null)
+        setSeedImgNatural(null)
+      } else {
+        setSeedError(res.reason ?? 'Could not find dancers in this frame')
+      }
+    } catch (err) {
+      setSeedError(String(err))
+    } finally {
+      unsubscribe()
+      setSeedLoading(false)
+    }
+  }
+
+  const onSeedImgLoad = (e: React.SyntheticEvent<HTMLImageElement>): void => {
+    const img = e.currentTarget
+    setSeedImgNatural({ w: img.naturalWidth, h: img.naturalHeight })
+  }
+
+  const clickSeedBox = (idx: number): void => {
+    if (idx === seedMeIdx) {
+      setSeedMeIdx(null)
+      return
+    }
+    if (idx === seedPartnerIdx) {
+      setSeedPartnerIdx(null)
+      return
+    }
+    if (seedMeIdx === null) {
+      setSeedMeIdx(idx)
+    } else if (seedPartnerIdx === null) {
+      setSeedPartnerIdx(idx)
+    }
+  }
+
+  const resetPicks = (): void => {
+    setSeedMeIdx(null)
+    setSeedPartnerIdx(null)
+  }
+
   const run = async (): Promise<void> => {
     if (!input || running) return
+    if (crowdMode && (seedMeIdx == null || seedPartnerIdx == null)) return
     setRunning(true)
     setErrorMsg(null)
     setStageProgress({})
@@ -98,14 +218,15 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
 
     try {
       const res = await window.api.analyze({
-        input,
+        input: crowdMode ? (seedVideo ?? input) : input,
         me,
         role,
         partner: partnerToggle,
         spotlight,
         poseModel,
         comparePros,
-        partnerName: partnerName.trim() || null
+        partnerName: partnerName.trim() || null,
+        ...(crowdMode ? { runId: seedRunId, seedMeIdx, seedPartnerIdx } : {})
       })
       if (res.ok && res.runId) {
         onAnalyzed(res.runId)
@@ -129,6 +250,15 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
       STAGE_ORDER.indexOf(a as (typeof STAGE_ORDER)[number]) -
       STAGE_ORDER.indexOf(b as (typeof STAGE_ORDER)[number])
   )
+
+  const seedStages = Object.keys(seedStageProgress).sort(
+    (a, b) =>
+      STAGE_ORDER.indexOf(a as (typeof STAGE_ORDER)[number]) -
+      STAGE_ORDER.indexOf(b as (typeof STAGE_ORDER)[number])
+  )
+
+  const runDisabled =
+    !input || running || (crowdMode && (seedMeIdx == null || seedPartnerIdx == null))
 
   return (
     <div>
@@ -173,6 +303,12 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
               Downloads in-process before analysis starts — not yet verified end-to-end, but the
               engine supports it.
             </p>
+            {url.trim() && !looksLikeYoutubeUrl(url.trim()) && (
+              <p className="tiny" style={{ color: 'var(--warning)', marginTop: 4 }}>
+                Doesn&apos;t look like a YouTube URL — analysis may fail if this isn&apos;t a
+                supported video link.
+              </p>
+            )}
           </div>
         )}
 
@@ -257,10 +393,169 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
             />{' '}
             Compare to pros
           </label>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={crowdMode}
+              disabled={running}
+              onChange={(e) => setCrowdMode(e.target.checked)}
+            />{' '}
+            Crowded floor? Pick yourself out of a crowd shot
+          </label>
         </div>
 
+        {crowdMode && (
+          <div
+            style={{
+              marginTop: 16,
+              borderTop: '1px solid var(--border-1)',
+              paddingTop: 16
+            }}
+          >
+            <h4>Pick yourself out of the crowd</h4>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <label className="check-label">
+                Timestamp (seconds)
+                <br />
+                <input
+                  type="number"
+                  min={0}
+                  value={atSec}
+                  disabled={seedLoading || running}
+                  onChange={(e) => setAtSec(Number(e.target.value))}
+                  style={{ width: 90 }}
+                />
+              </label>
+              <button disabled={!input || seedLoading || running} onClick={findUs}>
+                {seedLoading ? 'Finding…' : 'Find us'}
+              </button>
+            </div>
+
+            {seedError && (
+              <div className="callout" style={{ borderColor: 'var(--loss-border)' }}>
+                <strong className="neg">Couldn&apos;t find dancers:</strong>{' '}
+                <span className="neg">{seedError}</span>
+              </div>
+            )}
+
+            {(seedLoading || seedStages.length > 0) && (
+              <div style={{ marginTop: 12 }}>
+                {seedStages.length === 0 && <p className="muted tiny">Starting…</p>}
+                {seedStages.map((stage) => {
+                  const s = seedStageProgress[stage]
+                  const pct = stagePct(s)
+                  const eta = etaLabel(s)
+                  return (
+                    <div key={stage} className="stage-row">
+                      <div className="row-between">
+                        <span className="small">{STAGE_LABELS[stage] ?? stage}</span>
+                        <span className="muted tiny">
+                          {pct}%{eta ? ` · ${eta}` : ''}
+                        </span>
+                      </div>
+                      <div className="bar-track">
+                        <div className="bar-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+                {seedLogs.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <button className="btn-sm" onClick={() => setSeedShowLog((v) => !v)}>
+                      {seedShowLog ? 'Hide log' : `Show log (${seedLogs.length})`}
+                    </button>
+                    {seedShowLog && (
+                      <pre className="log-tail">{seedLogs.slice(-200).join('\n')}</pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {seedImage && (
+              <div style={{ marginTop: 12 }}>
+                {(seedTSec != null || seedFrameIdx != null) && (
+                  <p className="muted tiny">
+                    Frame at t≈{seedTSec?.toFixed(1) ?? '?'}s (frame #{seedFrameIdx ?? '?'})
+                  </p>
+                )}
+                <div className="seed-frame">
+                  <img
+                    src={seedImage}
+                    style={{ maxWidth: '100%', display: 'block' }}
+                    onLoad={onSeedImgLoad}
+                    alt="Seed frame with detected dancers"
+                  />
+                  {seedImgNatural &&
+                    seedDets &&
+                    seedDets.map((det) => {
+                      const [x0, y0, x1, y1] = det.box
+                      const boxCls =
+                        det.idx === seedMeIdx
+                          ? 'seed-box seed-box-me'
+                          : det.idx === seedPartnerIdx
+                            ? 'seed-box seed-box-partner'
+                            : 'seed-box'
+                      return (
+                        <button
+                          key={det.idx}
+                          type="button"
+                          className={boxCls}
+                          style={{
+                            left: `${(x0 / seedImgNatural.w) * 100}%`,
+                            top: `${(y0 / seedImgNatural.h) * 100}%`,
+                            width: `${((x1 - x0) / seedImgNatural.w) * 100}%`,
+                            height: `${((y1 - y0) / seedImgNatural.h) * 100}%`
+                          }}
+                          onClick={() => clickSeedBox(det.idx)}
+                        >
+                          <span className="seed-box-label">{det.idx}</span>
+                        </button>
+                      )
+                    })}
+                </div>
+
+                <div className="row" style={{ marginTop: 8, flexWrap: 'wrap', gap: 12 }}>
+                  <label className="check-label">
+                    You are #
+                    <br />
+                    <input
+                      type="number"
+                      value={seedMeIdx ?? ''}
+                      onChange={(e) =>
+                        setSeedMeIdx(e.target.value === '' ? null : Number(e.target.value))
+                      }
+                      style={{ width: 70 }}
+                    />
+                  </label>
+                  <label className="check-label">
+                    Partner is #
+                    <br />
+                    <input
+                      type="number"
+                      value={seedPartnerIdx ?? ''}
+                      onChange={(e) =>
+                        setSeedPartnerIdx(e.target.value === '' ? null : Number(e.target.value))
+                      }
+                      style={{ width: 70 }}
+                    />
+                  </label>
+                  <button className="btn-sm" onClick={resetPicks}>
+                    Reset picks
+                  </button>
+                </div>
+                <p className="muted tiny" style={{ marginTop: 4 }}>
+                  {seedMeIdx != null && seedPartnerIdx != null
+                    ? `You: #${seedMeIdx} · Partner: #${seedPartnerIdx}`
+                    : 'Click yourself, then your partner'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="row" style={{ marginTop: 16 }}>
-          <button className="btn-primary" disabled={!input || running} onClick={run}>
+          <button className="btn-primary" disabled={runDisabled} onClick={run}>
             {running ? 'Running…' : 'Run analysis'}
           </button>
           {running && <button onClick={cancel}>Cancel</button>}

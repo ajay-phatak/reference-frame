@@ -42,6 +42,46 @@ export interface AnalyzeOptions {
   poseModel: 'n' | 's' | 'm' | 'l' | 'x'
   comparePros: boolean
   partnerName?: string | null
+  seedMeIdx?: number | null
+  seedPartnerIdx?: number | null
+  runId?: string | null
+}
+
+export interface SeedPreviewOptions {
+  input: string
+  atSec: number
+  poseModel: AppConfig['poseModel']
+  runId?: string | null
+  me: 'left' | 'right'
+  role: 'lead' | 'follow'
+  partner: boolean
+  spotlight: boolean
+  comparePros: boolean
+  partnerName?: string | null
+}
+
+export interface SeedDetection {
+  idx: number
+  center: [number, number]
+  box: [number, number, number, number]
+  conf: number
+}
+
+export interface SeedPreviewResult {
+  ok: boolean
+  runId?: string
+  reason?: string
+  dets?: SeedDetection[]
+  frameIdx?: number
+  tSec?: number
+  video?: string
+  image?: string
+}
+
+export interface SetupResult {
+  exitCode: number
+  result: { data_dir: string; components: Record<string, Record<string, unknown>> } | null
+  error: { msg?: string; code?: string } | null
 }
 
 export interface AnalyzeResult {
@@ -119,6 +159,8 @@ export interface ReferenceFrameApi {
   analyze: (opts: AnalyzeOptions) => Promise<AnalyzeResult>
   cancelAnalyze: () => Promise<boolean>
   doctor: () => Promise<DoctorResult>
+  setupModels: (opts: { poseModel: AppConfig['poseModel'] }) => Promise<SetupResult>
+  seedPreview: (opts: SeedPreviewOptions) => Promise<SeedPreviewResult>
   libraryList: () => Promise<RunRecord[]>
   libraryGet: (runId: string) => Promise<RunDetail | null>
   libraryDelete: (runId: string) => Promise<{ ok: boolean }>

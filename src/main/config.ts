@@ -23,9 +23,9 @@ const DEFAULTS: AppConfig = {
   notesFolder: null,
   coachBackend: 'api',
   coachModel: 'sonnet',
-  // No Onboarding view yet (phase 3) — default to true so the shell renders
-  // the main nav directly instead of gating on a screen that doesn't exist.
-  onboarded: true
+  // Phase 3 adds the Onboarding view — gate new users on it until they
+  // finish (or explicitly skip) the welcome/model-setup wizard.
+  onboarded: false
 }
 
 const configPath = (): string => join(app.getPath('userData'), 'config.json')

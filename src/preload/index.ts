@@ -9,6 +9,9 @@ import type {
   ReferenceFrameApi,
   RunDetail,
   RunRecord,
+  SeedPreviewOptions,
+  SeedPreviewResult,
+  SetupResult,
   UpdateCheck
 } from './index.d'
 
@@ -22,6 +25,10 @@ const api: ReferenceFrameApi = {
     ipcRenderer.invoke('engine:analyze', opts),
   cancelAnalyze: (): Promise<boolean> => ipcRenderer.invoke('engine:cancel'),
   doctor: (): Promise<DoctorResult> => ipcRenderer.invoke('engine:doctor'),
+  setupModels: (opts: { poseModel: AppConfig['poseModel'] }): Promise<SetupResult> =>
+    ipcRenderer.invoke('engine:setup', opts),
+  seedPreview: (opts: SeedPreviewOptions): Promise<SeedPreviewResult> =>
+    ipcRenderer.invoke('engine:seedPreview', opts),
   libraryList: (): Promise<RunRecord[]> => ipcRenderer.invoke('library:list'),
   libraryGet: (runId: string): Promise<RunDetail | null> =>
     ipcRenderer.invoke('library:get', runId),
