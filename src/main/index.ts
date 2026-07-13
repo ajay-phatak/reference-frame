@@ -1,7 +1,11 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, dialog, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { EngineJob, EngineEvent, proRefsPath } from './engine'
+import { loadConfig, saveConfig, dataDir, AppConfig } from './config'
+import * as library from './library'
+import type { RunOptions } from './library'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -65,8 +69,132 @@ app.whenReady().then(() => {
     }
   })
 
-  // Stub — real config store (src/main/config.ts) lands with phase 2.
-  ipcMain.handle('config:get', () => ({ onboarded: true }))
+  ipcMain.handle('config:get', () => loadConfig())
+  ipcMain.handle('config:set', (_e, patch: Partial<AppConfig>) => saveConfig(patch))
+
+  ipcMain.handle('video:pickFile', async () => {
+    const r = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'avi', 'mkv'] }]
+    })
+    return r.canceled ? null : r.filePaths[0]
+  })
+
+  // One active analysis at a time (nojohns activeFetch pattern) — the Analyze
+  // view disables the Run button while a job is in flight, this is the
+  // server-side backstop.
+  let activeJob: EngineJob | null = null
+
+  interface AnalyzeArgs {
+    input: string
+    me: 'left' | 'right'
+    meId?: number | null
+    role: 'lead' | 'follow'
+    partner: boolean
+    spotlight: boolean
+    poseModel: string
+    comparePros: boolean
+    partnerName?: string | null
+  }
+
+  ipcMain.handle('engine:analyze', async (event, opts: AnalyzeArgs) => {
+    if (activeJob) return { ok: false, reason: 'busy' }
+
+    const config = loadConfig()
+    const runOptions: RunOptions = {
+      me: opts.me,
+      meId: opts.meId ?? null,
+      role: opts.role,
+      partner: opts.partner,
+      spotlight: opts.spotlight,
+      poseModel: opts.poseModel,
+      comparePros: opts.comparePros
+    }
+    const partnerName = opts.partnerName ?? config.partnerName
+    const { runId, dir } = library.createRun(dataDir(), opts.input, runOptions, partnerName)
+
+    const args = [
+      'analyze',
+      opts.input,
+      '--out-dir',
+      dir,
+      '--data-dir',
+      dataDir(),
+      '--me',
+      opts.me,
+      '--role',
+      opts.role,
+      '--pose-model',
+      opts.poseModel
+    ]
+    if (opts.meId != null) args.push('--me-id', String(opts.meId))
+    if (opts.partner) args.push('--partner')
+    if (opts.spotlight) args.push('--spotlight')
+    if (opts.comparePros) args.push('--compare-pros', '--pro-refs', proRefsPath())
+
+    const job = new EngineJob()
+    activeJob = job
+    let resultEvent: EngineEvent | undefined
+    let errorMsg: string | undefined
+    try {
+      const exitCode = await job.run(args, (e: EngineEvent) => {
+        if (e.event === 'result') resultEvent = e
+        if (e.event === 'error' && typeof e.msg === 'string') errorMsg = e.msg
+        event.sender.send('engine:event', e)
+      })
+      if (exitCode === 0 && resultEvent && resultEvent.kind === 'analysis') {
+        const record = library.completeRun(dataDir(), runId, resultEvent as library.AnalysisResult)
+        return {
+          ok: true,
+          runId,
+          report: record?.resultPaths.reportPath ?? null,
+          gap: record?.resultPaths.gapPath ?? null,
+          tracking: record?.coverage ?? null
+        }
+      }
+      const reason = errorMsg ?? `engine exited with code ${exitCode}`
+      library.failRun(dataDir(), runId, reason)
+      return { ok: false, runId, reason }
+    } catch (err) {
+      const reason = String(err)
+      library.failRun(dataDir(), runId, reason)
+      return { ok: false, runId, reason }
+    } finally {
+      activeJob = null
+    }
+  })
+
+  ipcMain.handle('engine:cancel', () => {
+    activeJob?.cancel()
+    return true
+  })
+
+  ipcMain.handle('engine:doctor', async (event) => {
+    let result: EngineEvent | null = null
+    let error: EngineEvent | null = null
+    const job = new EngineJob()
+    const exitCode = await job.run(['doctor', '--data-dir', dataDir()], (e: EngineEvent) => {
+      if (e.event === 'result') result = e
+      if (e.event === 'error') error = e
+      event.sender.send('engine:event', e)
+    })
+    return { exitCode, result, error }
+  })
+
+  // engine:setup and engine:seedPreview (crowd-mode picker, first-run weight
+  // download) are phase 3 — the `setup` and `seed-preview` engine subcommands
+  // already exist, but there's no onboarding/seed UI yet to drive them.
+
+  ipcMain.handle('library:list', () => library.list(dataDir()))
+  ipcMain.handle('library:get', (_e, runId: string) => library.get(dataDir(), runId))
+  ipcMain.handle('library:delete', (_e, runId: string) => ({
+    ok: library.remove(dataDir(), runId)
+  }))
+  ipcMain.handle('library:openFolder', async (_e, runId: string) => {
+    const dir = library.runDirPath(dataDir(), runId)
+    const err = await shell.openPath(dir)
+    return { ok: err === '' }
+  })
 
   createWindow()
 

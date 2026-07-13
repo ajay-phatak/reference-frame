@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { UpdateCheck } from '../../preload/index.d'
+import type { AppConfig, UpdateCheck } from '../../preload/index.d'
+import Analyze from './views/Analyze'
+import Library from './views/Library'
+import Report from './views/Report'
+import Settings from './views/Settings'
 
 const VIEWS = ['Analyze', 'Library', 'Coach', 'Settings'] as const
 type View = (typeof VIEWS)[number]
@@ -7,19 +11,34 @@ type View = (typeof VIEWS)[number]
 function App(): React.JSX.Element {
   const [view, setView] = useState<View>('Analyze')
   const [update, setUpdate] = useState<UpdateCheck | null>(null)
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  const [runId, setRunId] = useState<string | null>(null)
 
   useEffect(() => {
     window.api.checkUpdate().then((u) => {
       if (u.newer) setUpdate(u)
     })
+    window.api.getConfig().then(setConfig)
   }, [])
+
+  // Analyze success and Library card clicks both land here; the Report view
+  // is reached through Library rather than being its own nav tab.
+  const openRun = (id: string): void => {
+    setRunId(id)
+    setView('Library')
+  }
+
+  const goTo = (v: View): void => {
+    setRunId(null)
+    setView(v)
+  }
 
   return (
     <div className="app">
       <nav className="nav">
         <span className="brand">Reference Frame</span>
         {VIEWS.map((v) => (
-          <button key={v} onClick={() => setView(v)} className={view === v ? 'active' : undefined}>
+          <button key={v} onClick={() => goTo(v)} className={view === v ? 'active' : undefined}>
             {v}
           </button>
         ))}
@@ -37,14 +56,27 @@ function App(): React.JSX.Element {
             </button>
           </div>
         )}
-        {/* Placeholder shell — real views arrive in later phases. */}
-        <h1>{view}</h1>
-        <p className="muted">
-          {view === 'Analyze' && 'Run the analysis pipeline on a practice video — coming soon.'}
-          {view === 'Library' && 'Your past runs and reports — coming soon.'}
-          {view === 'Coach' && 'AI coaching on your gap analysis — coming soon.'}
-          {view === 'Settings' && 'Defaults, coach backend, and data folder — coming soon.'}
-        </p>
+
+        {!config ? (
+          <p className="muted">Loading…</p>
+        ) : (
+          <>
+            {view === 'Analyze' && <Analyze config={config} onAnalyzed={openRun} />}
+            {view === 'Library' &&
+              (runId ? (
+                <Report runId={runId} onBack={() => setRunId(null)} />
+              ) : (
+                <Library onOpen={openRun} />
+              ))}
+            {view === 'Coach' && (
+              <>
+                <h1>Coach</h1>
+                <p className="muted">AI coaching on your gap analysis — coming soon.</p>
+              </>
+            )}
+            {view === 'Settings' && <Settings config={config} onSaved={setConfig} />}
+          </>
+        )}
       </main>
     </div>
   )

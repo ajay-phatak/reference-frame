@@ -207,3 +207,173 @@
 .faint {
   color: var(--text-4);
 }
+
+.pos {
+  color: var(--win);
+}
+
+.neg {
+  color: var(--loss);
+}
+
+.warn {
+  color: var(--warning);
+}
+
+.small {
+  font-size: var(--text-sm);
+}
+
+.tiny {
+  font-size: var(--text-sm);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.h-inline {
+  margin: 0;
+}
+
+.check-label {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+
+/* --- gap chips (Report view) --- */
+
+.chip {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  border: 1px solid transparent;
+}
+
+.chip-even {
+  background: var(--bg-2);
+  color: var(--text-3);
+  border-color: var(--border-1);
+}
+
+.chip-good {
+  background: var(--win-soft);
+  color: var(--win);
+  border-color: var(--win-border);
+}
+
+.chip-bad {
+  background: var(--loss-soft);
+  color: var(--loss);
+  border-color: var(--loss-border);
+}
+
+/* --- tables --- */
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--text-sm);
+}
+
+.table th {
+  text-align: left;
+  color: var(--text-3);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-2);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-1);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+.table td:first-child {
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  font-weight: var(--weight-medium);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- cards as click targets (Library) --- */
+
+.card-click {
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.card-click:hover {
+  border-color: var(--accent-border);
+  background: var(--bg-2);
+}
+
+/* --- per-stage progress bars (Analyze) --- */
+
+.stage-row {
+  margin-bottom: var(--space-3);
+}
+
+.stage-row:last-child {
+  margin-bottom: 0;
+}
+
+.bar-track {
+  height: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--progress);
+  transition: width 0.2s ease;
+}
+
+/* --- log tail (Analyze) --- */
+
+.log-tail {
+  margin-top: var(--space-2);
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-0);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  white-space: pre-wrap;
+}
+
+/* --- report text (Report) --- */
+
+.report-text {
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-width: 100%;
+}
