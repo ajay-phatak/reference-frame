@@ -2,11 +2,17 @@ import { useEffect, useState } from 'react'
 import type { AppConfig, RunDetail } from '../../../preload/index.d'
 import { parseGap, type GapRow } from '../gap'
 
-// A YouTube URL has no captured title anywhere in run.json — show a small
-// "YouTube <id>" chip instead, reusing the same 11-char-id regex library.ts's
-// stemFromInput uses so the id we show matches the one baked into the runId.
-function sourceLabel(source: RunDetail['run']['source'], input: string): string | null {
+// Prefer the captured YouTube title when the engine grabbed one; otherwise
+// fall back to a small "YouTube <id>" chip, reusing the same 11-char-id regex
+// library.ts's stemFromInput uses so the id we show matches the one baked
+// into the runId.
+function sourceLabel(
+  source: RunDetail['run']['source'],
+  input: string,
+  videoTitle: string | null
+): string | null {
   if (source !== 'url') return null
+  if (videoTitle) return videoTitle
   const m = input.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
   return m ? `YouTube ${m[1]}` : input.length > 40 ? `${input.slice(0, 40)}…` : input
 }
@@ -74,24 +80,24 @@ function Report({ runId, onBack }: Props): React.JSX.Element {
 
   const { run, reportText, gapText } = detail
 
-  // NOTE (engine limitation, verified against run.py): run.json's youId is
-  // NOT the raw pre-orientation tracked-dancer id — after orientation the
-  // engine always reassigns you_id = 1 if role=="lead" else 2, a constant
-  // derived purely from role. So `otherId = 3 - youId` (equivalently
-  // youId===1 ? 2 : 1) is a best-effort "the other physical dancer" guess,
-  // not a guaranteed complementary pick — a rerun with --me-id otherId can
-  // land back on the SAME physical dancer. This is the best available
-  // behavior without an engine change.
+  // run.json's youId is NOT the raw pre-orientation tracked-dancer id — after
+  // orientation the engine always reassigns you_id = 1 if role=="lead" else
+  // 2, a constant derived purely from role, so 3-youId can reselect the SAME
+  // physical dancer. youIdRaw is the pre-orientation id the engine actually
+  // resolved (exactly what --me-id selects, since --me-id is consumed before
+  // orientation runs) — its complement is guaranteed to be the OTHER physical
+  // dancer on a cached-poses rerun (raw tracked ids are stable across reruns
+  // of the same poses cache).
   const swapDancers = async (): Promise<void> => {
-    if (run.status !== 'done' || run.youId == null) return
-    const otherId = run.youId === 1 ? 2 : 1
+    if (run.status !== 'done' || run.youIdRaw == null) return
+    const otherRawId = run.youIdRaw === 1 ? 2 : 1
     setSwapping(true)
     setSwapError(null)
     try {
       const res = await window.api.analyze({
         input: run.resultPaths.videoPath ?? run.input,
         me: run.options.me,
-        meId: otherId,
+        meId: otherRawId,
         role: run.options.role,
         partner: run.options.partner,
         spotlight: run.options.spotlight,
@@ -113,7 +119,7 @@ function Report({ runId, onBack }: Props): React.JSX.Element {
     }
   }
 
-  const srcLabel = sourceLabel(run.source, run.input)
+  const srcLabel = sourceLabel(run.source, run.input, run.videoTitle)
   const coverage = run.coverage
   const lowCoverage =
     coverage != null && Object.values(coverage).some((v) => typeof v === 'number' && v < 80)
@@ -129,7 +135,7 @@ function Report({ runId, onBack }: Props): React.JSX.Element {
             Ask the coach
           </button>
           <button
-            disabled={run.status !== 'done' || run.youId == null || swapping}
+            disabled={run.status !== 'done' || run.youIdRaw == null || swapping}
             onClick={swapDancers}
           >
             {swapping ? 'Re-running with the other dancer…' : 'Not me? Swap dancers'}

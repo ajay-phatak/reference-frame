@@ -21,16 +21,22 @@ def _stem_for(url: str) -> str:
     return m.group(1) if m else "yt_video"
 
 
-def _ffmpeg_dir() -> str:
+def _ffmpeg_exe() -> str:
+    # yt-dlp only discovers binaries literally named ffmpeg.exe inside an
+    # ffmpeg_location directory, and imageio_ffmpeg's binary is versioned
+    # (ffmpeg-win-x86_64-*.exe) — so pass the exe path itself, never its parent.
     import imageio_ffmpeg
-    return str(pathlib.Path(imageio_ffmpeg.get_ffmpeg_exe()).parent)
+    return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def download_youtube(url: str, out_dir: pathlib.Path) -> pathlib.Path:
+def download_youtube(url: str, out_dir: pathlib.Path):
     """Download a YouTube video+audio and merge into a single mp4 in out_dir.
 
-    Returns the local mp4 path. Reuses an existing download when present.
-    Raises RuntimeError on failure (cli maps this to a `download_failed` error).
+    Returns (local mp4 path, video title or None). Reuses an existing download
+    when present — the title isn't refetched on a cache hit (no extra network
+    round trip just for metadata); callers should fall back to a previously
+    stored title in that case. Raises RuntimeError on failure (cli maps this
+    to a `download_failed` error).
     """
     import yt_dlp
 
@@ -41,7 +47,7 @@ def download_youtube(url: str, out_dir: pathlib.Path) -> pathlib.Path:
 
     if mp4_path.exists():
         events.log(f"Already downloaded: {mp4_path.name}")
-        return mp4_path
+        return mp4_path, None
 
     def _hook(d):
         status = d.get("status")
@@ -57,7 +63,7 @@ def download_youtube(url: str, out_dir: pathlib.Path) -> pathlib.Path:
         "format": _FORMAT,
         "outtmpl": str(out_dir / f"{stem}.%(ext)s"),
         "merge_output_format": "mp4",
-        "ffmpeg_location": _ffmpeg_dir(),
+        "ffmpeg_location": _ffmpeg_exe(),
         "progress_hooks": [_hook],
         "quiet": True,
         "no_warnings": True,
@@ -65,9 +71,16 @@ def download_youtube(url: str, out_dir: pathlib.Path) -> pathlib.Path:
     }
 
     events.log(f"Downloading {url} …")
+    title = None
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+            # extract_info(download=True) both downloads and returns yt-dlp's
+            # info dict, so the title comes off the same request instead of a
+            # second network round trip (the source used the download-only
+            # `ydl.download([url])` call, which returns no info).
+            info = ydl.extract_info(url, download=True)
+        if isinstance(info, dict):
+            title = info.get("title")
     except Exception as e:                       # noqa: BLE001 — surface as typed error upstream
         raise RuntimeError(f"YouTube download failed: {e}") from e
 
@@ -78,8 +91,8 @@ def download_youtube(url: str, out_dir: pathlib.Path) -> pathlib.Path:
                             key=lambda p: p.stat().st_mtime, reverse=True)
         candidates = [c for c in candidates if c.suffix.lower() in (".mp4", ".mkv", ".webm")]
         if candidates:
-            return candidates[0]
+            return candidates[0], title
         raise RuntimeError("Download completed but no output file was found.")
 
     events.log(f"Saved → {mp4_path.name}")
-    return mp4_path
+    return mp4_path, title

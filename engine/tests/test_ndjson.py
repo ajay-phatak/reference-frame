@@ -205,6 +205,78 @@ def test_unexpected_exception_is_terminal_typed_error(ndjson_out, monkeypatch, t
 
 # ── doctor end-to-end (no heavy deps required: imports are try/except'd) ─────
 
+# ── setup_models.py: retry + typed network-failure errors ────────────────────
+# setup_models.py only imports os/time/urllib/paths/events at module level (no
+# torch/ultralytics/cv2), so it's safe to import directly here without the
+# heavy-dep stubbing the analyze tests above need.
+
+def test_setup_download_retries_then_succeeds(tmp_path, monkeypatch):
+    from refframe_engine import setup_models as sm
+
+    calls = {"n": 0}
+
+    def fake_urlretrieve(url, filename, reporthook=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError(10054, "An existing connection was forcibly closed")
+        Path(filename).write_bytes(b"weights")
+
+    monkeypatch.setattr(sm.urllib.request, "urlretrieve", fake_urlretrieve)
+    monkeypatch.setattr(sm.time, "sleep", lambda s: None)  # skip real backoff in tests
+
+    dest = tmp_path / "yolov8m-pose.pt"
+    sm._download("https://example.invalid/yolov8m-pose.pt", str(dest), "weights")
+
+    assert calls["n"] == 3
+    assert dest.read_bytes() == b"weights"
+    assert not dest.with_suffix(dest.suffix + ".part").exists()
+
+
+def test_setup_download_exhausts_retries_raises_runtime_error(tmp_path, monkeypatch):
+    from refframe_engine import setup_models as sm
+
+    def always_fail(url, filename, reporthook=None):
+        # urlretrieve raises URLError (an OSError subclass) for connection
+        # resets like WinError 10054 — this is exactly the case that used to
+        # bypass cli.py's RuntimeError handler and land as code "internal".
+        raise OSError(10054, "An existing connection was forcibly closed")
+
+    monkeypatch.setattr(sm.urllib.request, "urlretrieve", always_fail)
+    monkeypatch.setattr(sm.time, "sleep", lambda s: None)
+
+    dest = tmp_path / "yolov8m-pose.pt"
+    with pytest.raises(RuntimeError):
+        sm._download("https://example.invalid/yolov8m-pose.pt", str(dest), "weights")
+    assert not dest.exists()
+    assert not (tmp_path / "yolov8m-pose.pt.part").exists()
+
+
+def test_setup_network_failure_emits_download_failed(ndjson_out, monkeypatch, tmp_path):
+    """End-to-end through cli.py: a network failure during `setup` (now always
+    surfaced as a RuntimeError by setup_models, per the two tests above) must
+    produce a single typed download_failed error event, not fall through to
+    the generic "internal" catch-all in cli.main()."""
+    stub = types.ModuleType("refframe_engine.setup_models")
+
+    def setup(*a, **k):
+        raise RuntimeError(
+            "Download failed after 3 attempts: "
+            "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8m-pose.pt "
+            "([WinError 10054] An existing connection was forcibly closed by the remote host)"
+        )
+
+    stub.setup = setup
+    monkeypatch.setitem(sys.modules, "refframe_engine.setup_models", stub)
+
+    rc, objs = _run_cli(["setup", "--data-dir", str(tmp_path)], ndjson_out)
+    assert rc != 0
+    errors = [o for o in objs if o["event"] == "error"]
+    assert len(errors) == 1
+    assert errors[0]["code"] == "download_failed"
+
+
+# ── doctor end-to-end (no heavy deps required: imports are try/except'd) ─────
+
 def test_doctor_streams_json_and_one_result(ndjson_out, tmp_path):
     rc = cli.main(["doctor", "--data-dir", str(tmp_path)])
     objs = _parsed(ndjson_out)

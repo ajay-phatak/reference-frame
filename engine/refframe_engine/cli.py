@@ -164,7 +164,7 @@ def _cmd_seed_preview(args):
     try:
         with _capture():
             _patch_checkpoint_dir(args.data_dir)
-            video_path, _ = run.resolve_input(args.input, args.out_dir, args.data_dir)
+            video_path, _, _ = run.resolve_input(args.input, args.out_dir, args.data_dir)
             run.seed_preview(pathlib.Path(video_path), args.at, args.out_dir,
                              args.data_dir, pose_letter=args.pose_model)
     except run._WeightsMissing as ex:

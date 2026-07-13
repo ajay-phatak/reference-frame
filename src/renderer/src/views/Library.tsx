@@ -23,11 +23,17 @@ function statusClass(status: RunRecord['status']): string {
   return 'muted'
 }
 
-// A YouTube URL has no captured title anywhere in run.json — show a small
-// "YouTube <id>" chip instead, reusing the same 11-char-id regex library.ts's
-// stemFromInput uses so the id we show matches the one baked into the runId.
-function sourceLabel(source: RunRecord['source'], input: string): string | null {
+// Prefer the captured YouTube title when the engine grabbed one; otherwise
+// fall back to a small "YouTube <id>" chip, reusing the same 11-char-id regex
+// library.ts's stemFromInput uses so the id we show matches the one baked
+// into the runId.
+function sourceLabel(
+  source: RunRecord['source'],
+  input: string,
+  videoTitle: string | null
+): string | null {
   if (source !== 'url') return null
+  if (videoTitle) return videoTitle
   const m = input.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
   return m ? `YouTube ${m[1]}` : input.length > 40 ? `${input.slice(0, 40)}…` : input
 }
@@ -62,7 +68,7 @@ function Library({ onOpen }: Props): React.JSX.Element {
       )}
 
       {runs.map((run) => {
-        const srcLabel = sourceLabel(run.source, run.input)
+        const srcLabel = sourceLabel(run.source, run.input, run.videoTitle)
         return (
           <div className="card card-click" key={run.runId} onClick={() => onOpen(run.runId)}>
             <div className="row-between">

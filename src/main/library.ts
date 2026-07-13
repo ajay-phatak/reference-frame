@@ -37,6 +37,13 @@ export interface RunRecord {
     videoPath: string | null
   }
   youId: number | null
+  // Raw, pre-orientation tracked-dancer id (1|2) that the engine resolved as
+  // "you" — i.e. exactly what --me-id selects. Unlike youId (which the engine
+  // always normalises to 1 for lead / 2 for follow after orientation), this
+  // is what "swap dancers" needs to pick the COMPLEMENTARY physical dancer.
+  // Absent on runs from before this field existed.
+  youIdRaw: number | null
+  videoTitle: string | null
   coverage: Record<string, number | null> | null
   error: string | null
 }
@@ -128,6 +135,8 @@ export function createRun(
       videoPath: null
     },
     youId: null,
+    youIdRaw: null,
+    videoTitle: null,
     coverage: null,
     error: null
   }
@@ -141,7 +150,9 @@ export interface AnalysisResult {
   metrics_path?: string | null
   poses_path?: string | null
   video_path?: string | null
+  video_title?: string | null
   you_id?: number | null
+  you_id_raw?: number | null
   coverage?: Record<string, number | null> | null
 }
 
@@ -163,6 +174,11 @@ export function completeRun(
   }
   if (result.video_path) record.videoName = basename(result.video_path, extname(result.video_path))
   record.youId = result.you_id ?? null
+  record.youIdRaw = result.you_id_raw ?? null
+  // A rerun that reuses an already-downloaded YouTube file (e.g. the
+  // swap-dancers rerun below) doesn't refetch the title — keep whatever
+  // title a previous completion already captured instead of blanking it.
+  record.videoTitle = result.video_title ?? record.videoTitle ?? null
   record.coverage = result.coverage ?? null
   writeRun(dataDir, record)
   return record

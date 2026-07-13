@@ -356,19 +356,23 @@ def _weights_for(data_dir, pose_letter):
 def resolve_input(input_str, out_dir, data_dir):
     """Resolve a path-or-URL to a local video Path (downloading if a URL).
 
-    Returns (video_path, is_url). Raises RuntimeError('file_not_found'/...) on
-    a missing local file; download failures propagate as RuntimeError.
+    Returns (video_path, is_url, video_title). video_title is the YouTube
+    title (None for local files, or for a URL whose download reused an
+    existing cached mp4 — see download.download_youtube). Raises
+    RuntimeError('file_not_found'/...) on a missing local file; download
+    failures propagate as RuntimeError.
     """
     import pathlib
     is_url = input_str.startswith("http://") or input_str.startswith("https://")
+    video_title = None
     if is_url:
         from . import download
-        video_path = download.download_youtube(input_str, pathlib.Path(out_dir))
+        video_path, video_title = download.download_youtube(input_str, pathlib.Path(out_dir))
     else:
         video_path = pathlib.Path(input_str)
         if not video_path.exists():
             raise FileNotFoundError(str(video_path))
-    return video_path, is_url
+    return video_path, is_url, video_title
 
 
 def _load_seed(out_dir, stem, me_idx, partner_idx):
@@ -556,7 +560,7 @@ def analyze(input_str, out_dir, data_dir, *, me="left", me_id=None, role="lead",
     # ── step 1: resolve input to a local video file ─────────────────────────
     if input_str.startswith("http://") or input_str.startswith("https://"):
         events.progress("download", 0, 1)
-    video_path, _is_url = resolve_input(input_str, out_dir, data_dir)
+    video_path, _is_url, video_title = resolve_input(input_str, out_dir, data_dir)
 
     stem = video_path.stem
 
@@ -570,6 +574,12 @@ def analyze(input_str, out_dir, data_dir, *, me="left", me_id=None, role="lead",
     poses["video_path"] = str(video_path)
 
     # Resolve which tracked Dancer ID is the user (their role is set by `role`).
+    # This is the RAW, pre-orientation tracked id from the poses cache — i.e.
+    # exactly what --me-id selects (--me-id is consumed here, before
+    # _orient_lead_first runs). It's preserved as `you_id_raw` below because
+    # `you_id` itself gets overwritten to a post-orientation constant (1 for
+    # lead / 2 for follow) a few lines down, which is useless for picking the
+    # COMPLEMENTARY physical dancer on a "swap" rerun.
     if seeded:
         you_id = 1   # seed step 2 pins dancer 1 = you, dancer 2 = partner
         events.log(f"You ({role}) = Dancer 1 (seeded as the person you picked, #{seed_me_idx})")
@@ -579,6 +589,7 @@ def analyze(input_str, out_dir, data_dir, *, me="left", me_id=None, role="lead",
     else:
         you_id = _dancer_on_side(poses, me)
         events.log(f"You ({role}) start on the {me} → Dancer {you_id}")
+    you_id_raw = you_id
 
     # Orient tracking so the actual LEAD is Dancer 1 (true roles, not tracker order).
     partner_tracked = 2 if you_id == 1 else 1
@@ -650,7 +661,9 @@ def analyze(input_str, out_dir, data_dir, *, me="left", me_id=None, role="lead",
         metrics_path=str(metrics_path),
         poses_path=str(out_dir / f"{stem}_poses.json"),
         video_path=str(video_path),
+        video_title=video_title,
         you_id=you_id,
+        you_id_raw=you_id_raw,
         role=role,
         coverage=coverage,
     )

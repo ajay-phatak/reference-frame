@@ -4,13 +4,20 @@ import type {
   AnalyzeOptions,
   AnalyzeResult,
   AppConfig,
+  CliDetection,
+  CoachKeyStatus,
+  CoachResult,
+  CoachStatus,
   DoctorResult,
   EngineEvent,
   ReferenceFrameApi,
   RunDetail,
   RunRecord,
+  SaveFocusesPayload,
+  SaveFocusesResult,
   SeedPreviewOptions,
   SeedPreviewResult,
+  SetKeyResult,
   SetupResult,
   UpdateCheck
 } from './index.d'
@@ -40,6 +47,25 @@ const api: ReferenceFrameApi = {
     const listener = (_e: Electron.IpcRendererEvent, payload: EngineEvent): void => cb(payload)
     ipcRenderer.on('engine:event', listener)
     return () => ipcRenderer.removeListener('engine:event', listener)
+  },
+  // Coach (phase 4). API key plaintext crosses only inbound on set; status
+  // returns configured + last4 only.
+  pickNotesFolder: (): Promise<string | null> => ipcRenderer.invoke('notes:pickFolder'),
+  coachStatus: (): Promise<CoachStatus> => ipcRenderer.invoke('coach:status'),
+  coachKeyStatus: (): Promise<CoachKeyStatus> => ipcRenderer.invoke('coach:keyStatus'),
+  setCoachKey: (key: string): Promise<SetKeyResult> => ipcRenderer.invoke('coach:setKey', key),
+  clearCoachKey: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('coach:clearKey'),
+  detectClaudeCli: (): Promise<CliDetection> => ipcRenderer.invoke('coach:detectCli'),
+  coachReport: (runId: string): Promise<CoachResult> => ipcRenderer.invoke('coach:report', runId),
+  coachChat: (text: string): Promise<CoachResult> => ipcRenderer.invoke('coach:chat', text),
+  coachReset: (): Promise<boolean> => ipcRenderer.invoke('coach:reset'),
+  coachHasConversation: (): Promise<boolean> => ipcRenderer.invoke('coach:hasConversation'),
+  saveFocuses: (payload: SaveFocusesPayload): Promise<SaveFocusesResult> =>
+    ipcRenderer.invoke('coach:saveFocuses', payload),
+  onCoachDelta: (cb: (text: string) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, text: string): void => cb(text)
+    ipcRenderer.on('coach:delta', listener)
+    return () => ipcRenderer.removeListener('coach:delta', listener)
   }
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AppConfig, UpdateCheck } from '../../preload/index.d'
 import Analyze from './views/Analyze'
+import Coach from './views/Coach'
 import Library from './views/Library'
 import Onboarding from './views/Onboarding'
 import Report from './views/Report'
@@ -73,12 +74,7 @@ function App(): React.JSX.Element {
               ) : (
                 <Library onOpen={openRun} />
               ))}
-            {view === 'Coach' && (
-              <>
-                <h1>Coach</h1>
-                <p className="muted">AI coaching on your gap analysis — coming soon.</p>
-              </>
-            )}
+            {view === 'Coach' && <Coach />}
             {view === 'Settings' && <Settings config={config} onSaved={setConfig} />}
           </>
         )}

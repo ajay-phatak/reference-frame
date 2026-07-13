@@ -7,6 +7,24 @@ import { EngineJob, EngineEvent, proRefsPath } from './engine'
 import { loadConfig, saveConfig, dataDir, AppConfig } from './config'
 import * as library from './library'
 import type { RunOptions } from './library'
+import { setKey, clearKey, keyStatus } from './coach/key'
+import { parseAdvice, type CoachGap } from './coach/advise'
+import {
+  generateReport,
+  chat,
+  resetConversation,
+  hasConversation,
+  type AdviseInputs
+} from './coach/client'
+import {
+  detectCli,
+  cliGenerateReport,
+  cliChat,
+  resetCliConversation,
+  hasCliConversation
+} from './coach/cli'
+import { renderPreviousFocuses, saveFocusGroup } from './coach/focuses'
+import { buildExcerpts } from './notes/excerpts'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -315,6 +333,115 @@ app.whenReady().then(() => {
     const err = await shell.openPath(dir)
     return { ok: err === '' }
   })
+
+  // ------------------------------------------------------------------------
+  // Coach (phase 4) — two backends (Anthropic API / local Claude Code CLI),
+  // notes-folder excerpts, and the dated-focus loop.
+  // ------------------------------------------------------------------------
+
+  // Notes folder picker — read-only source of markdown lesson notes the coach
+  // can cite. The path is stored in config (not a secret).
+  ipcMain.handle('notes:pickFolder', async () => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+    return r.canceled ? null : r.filePaths[0]
+  })
+
+  // API key: plaintext crosses IPC only inbound (set); status returns
+  // configured + last4, never the key itself.
+  ipcMain.handle('coach:setKey', (_e, key: string) => setKey(key))
+  ipcMain.handle('coach:clearKey', () => clearKey())
+  ipcMain.handle('coach:keyStatus', () => keyStatus())
+  ipcMain.handle('coach:detectCli', () => detectCli())
+
+  // Backend readiness in one call: which backend is selected + whether it can
+  // actually serve a request right now.
+  ipcMain.handle('coach:status', async () => {
+    const { coachBackend, coachModel, notesFolder } = loadConfig()
+    const key = keyStatus()
+    const cli = await detectCli()
+    return {
+      backend: coachBackend,
+      model: coachModel,
+      keyConfigured: key.configured,
+      cliFound: cli.found,
+      cliVersion: cli.version,
+      notesConfigured: !!notesFolder,
+      ready: coachBackend === 'claude-cli' ? cli.found : key.configured
+    }
+  })
+
+  // Coaching report on a library run. Deltas stream over coach:delta; the
+  // invoke resolves with the final prose + parsed gaps + usage/cost.
+  ipcMain.handle('coach:report', async (event, runId: string) => {
+    const detail = library.get(dataDir(), runId)
+    if (!detail) return { ok: false, reason: 'run_not_found' }
+    if (!detail.reportText) return { ok: false, reason: 'no_report' }
+    const { run, reportText, gapText } = detail
+    const cfg = loadConfig()
+    const onDelta = (text: string): void => event.sender.send('coach:delta', text)
+
+    // Notes excerpts (optional) and the dancer's previous focuses close the
+    // loop: the coach cites their own lessons and builds on prior commitments.
+    const practiceNotes = cfg.notesFolder
+      ? buildExcerpts({ notesFolder: cfg.notesFolder, gapText, reportText })
+      : null
+    const previousFocuses = renderPreviousFocuses(join(dataDir(), 'coach'))
+
+    const inputs: AdviseInputs = {
+      reportTxt: reportText,
+      gapTxt: gapText,
+      context: {
+        role: run.options.role,
+        partnerName: run.partnerName,
+        spotlight: run.options.spotlight,
+        coverage: run.coverage
+      },
+      practiceNotes,
+      previousFocuses
+    }
+    const res =
+      cfg.coachBackend === 'claude-cli'
+        ? await cliGenerateReport(inputs, cfg.coachModel, onDelta)
+        : await generateReport(inputs, cfg.coachModel, onDelta)
+    if (!res.ok || !res.text) return res
+    const { prose, gaps }: { prose: string; gaps: CoachGap[] } = parseAdvice(res.text)
+    return { ...res, text: prose, gaps }
+  })
+
+  ipcMain.handle('coach:chat', (event, text: string) => {
+    const onDelta = (t: string): void => event.sender.send('coach:delta', t)
+    const { coachBackend, coachModel } = loadConfig()
+    return coachBackend === 'claude-cli'
+      ? cliChat(text, coachModel, onDelta)
+      : chat(text, coachModel, onDelta)
+  })
+
+  ipcMain.handle('coach:reset', () => {
+    resetConversation()
+    resetCliConversation()
+    return true
+  })
+
+  ipcMain.handle('coach:hasConversation', () => hasConversation() || hasCliConversation())
+
+  // Save the focuses the dancer agreed to as a dated group under
+  // data/coach/focuses.json (last 3 kept, fed back into the next report).
+  ipcMain.handle(
+    'coach:saveFocuses',
+    (_e, payload: { date?: string; prose: string; focuses: { gap: string; plan: string }[] }) => {
+      const date =
+        payload.date && payload.date.trim() ? payload.date : new Date().toISOString().slice(0, 10)
+      try {
+        return saveFocusGroup(join(dataDir(), 'coach'), {
+          date,
+          prose: payload.prose,
+          focuses: payload.focuses
+        })
+      } catch (err) {
+        return { ok: false, reason: String(err) }
+      }
+    }
+  )
 
   createWindow()
 

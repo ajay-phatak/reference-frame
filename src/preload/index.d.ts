@@ -141,6 +141,11 @@ export interface RunRecord {
     videoPath: string | null
   }
   youId: number | null
+  // Raw, pre-orientation tracked-dancer id (1|2) the engine resolved as "you"
+  // — what --me-id selects. Use this (not youId) to pick the complementary
+  // physical dancer for "swap dancers". Absent on runs predating this field.
+  youIdRaw: number | null
+  videoTitle: string | null
   coverage: Record<string, number | null> | null
   error: string | null
 }
@@ -149,6 +154,70 @@ export interface RunDetail {
   run: RunRecord
   reportText: string | null
   gapText: string | null
+}
+
+// ---- Coach (phase 4) ----
+
+export type CoachModel = 'opus' | 'sonnet' | 'haiku'
+
+export interface CoachKeyStatus {
+  configured: boolean
+  last4?: string
+}
+
+export interface CliDetection {
+  found: boolean
+  version?: string
+}
+
+export interface CoachStatus {
+  backend: 'api' | 'claude-cli'
+  model: CoachModel
+  keyConfigured: boolean
+  cliFound: boolean
+  cliVersion?: string
+  notesConfigured: boolean
+  ready: boolean
+}
+
+export interface CoachUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheWriteTokens: number
+  cacheReadTokens: number
+  costUsd: number
+  monthUsd: number
+}
+
+export interface CoachGap {
+  gap: string
+  evidence: string
+  suggestion: string
+}
+
+export interface CoachResult {
+  ok: boolean
+  reason?: string
+  text?: string
+  usage?: CoachUsage
+  gaps?: CoachGap[]
+}
+
+export interface SetKeyResult {
+  ok: boolean
+  reason?: string
+}
+
+export interface SaveFocusesResult {
+  ok: boolean
+  reason?: string
+  groups?: number
+}
+
+export interface SaveFocusesPayload {
+  date?: string
+  prose: string
+  focuses: { gap: string; plan: string }[]
 }
 
 export interface ReferenceFrameApi {
@@ -166,6 +235,19 @@ export interface ReferenceFrameApi {
   libraryDelete: (runId: string) => Promise<{ ok: boolean }>
   libraryOpenFolder: (runId: string) => Promise<{ ok: boolean }>
   onEngineEvent: (cb: (e: EngineEvent) => void) => () => void
+  // Coach (phase 4)
+  pickNotesFolder: () => Promise<string | null>
+  coachStatus: () => Promise<CoachStatus>
+  coachKeyStatus: () => Promise<CoachKeyStatus>
+  setCoachKey: (key: string) => Promise<SetKeyResult>
+  clearCoachKey: () => Promise<{ ok: boolean }>
+  detectClaudeCli: () => Promise<CliDetection>
+  coachReport: (runId: string) => Promise<CoachResult>
+  coachChat: (text: string) => Promise<CoachResult>
+  coachReset: () => Promise<boolean>
+  coachHasConversation: () => Promise<boolean>
+  saveFocuses: (payload: SaveFocusesPayload) => Promise<SaveFocusesResult>
+  onCoachDelta: (cb: (text: string) => void) => () => void
 }
 
 declare global {
