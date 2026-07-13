@@ -1,0 +1,94 @@
+/* ============================================================
+   Reference Frame — Design Tokens
+   Ported from No Johns "Ranked" theme (cool cyan-blue accent,
+   angular/clipped geometry) as the scaffold baseline; retheme
+   by editing this file + app.css only.
+   ============================================================ */
+:root {
+  /* ---- Surfaces ---- */
+  --bg-0: oklch(14% 0.010 260);   /* app background */
+  --bg-1: oklch(18% 0.012 260);   /* card / raised panel */
+  --bg-2: oklch(22% 0.014 260);   /* input / hover surface */
+  --bg-3: oklch(26% 0.016 260);   /* pressed / stronger hover */
+
+  /* ---- Borders ---- */
+  --border-1: oklch(28% 0.014 260);  /* card / table borders */
+  --border-2: oklch(38% 0.018 260);  /* control borders (inputs, buttons) */
+  --border-focus: var(--accent);
+
+  /* ---- Text tiers ---- */
+  --text-1: oklch(94% 0.005 260);  /* headings, primary values */
+  --text-2: oklch(76% 0.010 260);  /* body copy */
+  --text-3: oklch(58% 0.012 260);  /* muted / secondary labels */
+  --text-4: oklch(42% 0.012 260);  /* faint / disabled / micro-text */
+
+  /* ---- Primary accent (nav active, primary buttons, links) ---- */
+  --accent: oklch(72% 0.16 230);
+  --accent-strong: oklch(78% 0.17 230);
+  --accent-soft: oklch(72% 0.16 230 / 0.14);
+  --accent-border: oklch(72% 0.16 230 / 0.45);
+  --on-accent: oklch(14% 0.02 260);
+
+  /* ---- Semantic ---- */
+  --win: oklch(76% 0.17 150);
+  --win-soft: oklch(76% 0.17 150 / 0.13);
+  --win-border: oklch(76% 0.17 150 / 0.4);
+
+  --loss: oklch(70% 0.19 25);
+  --loss-soft: oklch(70% 0.19 25 / 0.13);
+  --loss-border: oklch(70% 0.19 25 / 0.4);
+
+  --progress: oklch(80% 0.14 195);
+  --progress-soft: oklch(80% 0.14 195 / 0.13);
+
+  --warning: oklch(80% 0.14 80);
+  --warning-soft: oklch(80% 0.14 80 / 0.13);
+  --warning-border: oklch(80% 0.14 80 / 0.4);
+
+  --info: oklch(74% 0.12 250);
+  --info-soft: oklch(74% 0.12 250 / 0.13);
+  --info-border: oklch(74% 0.12 250 / 0.4);
+
+  /* ---- Geometry ---- */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --clip: 10px; /* corner-cut size for the angular card/button treatment */
+
+  /* ---- Spacing scale ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ---- Type ---- */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 34px;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-loose: 1.7;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.3);
+  --shadow-md: 0 4px 16px oklch(0% 0 0 / 0.35);
+  --shadow-accent-glow: 0 0 0 1px var(--accent-border), 0 0 20px oklch(72% 0.16 230 / 0.12);
+}

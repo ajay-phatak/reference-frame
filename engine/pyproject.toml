@@ -1,0 +1,47 @@
+[project]
+name = "refframe-engine"
+version = "0.1.0"
+description = "Reference Frame analysis engine — WCS dance video review vs pro baselines"
+requires-python = ">=3.11,<3.13"
+# Versions mirror Dance Analysis/requirements.txt. The source pins everything with
+# `>=` (no exact pins), so these stay `>=` too — the golden-diff / packaging phase
+# must FREEZE these to the exact versions of the Dance Analysis dev env before
+# comparing outputs, then re-pin here (see report "open items").
+#
+# opencv-python-headless replaces the source's opencv-python: nothing in the
+# pipeline calls cv2.imshow / cv2.waitKey (seed previews are written with
+# cv2.imwrite), and headless avoids bundling GUI/Qt libs into the frozen exe.
+#
+# torch / torchvision are NOT listed here: they arrive transitively via
+# ultralytics (which is why the source requirements.txt omits them too). The
+# build venv must install the CPU-only torch wheel FIRST
+# (--index-url https://download.pytorch.org/whl/cpu) or the bundle balloons with
+# CUDA. pose_lift.py imports torch directly and relies on that pre-install.
+dependencies = [
+    "ultralytics>=8.0.0",          # YOLOv8-pose multi-person tracking (pass 1); pulls torch
+    "rtmlib>=0.0.13",              # RTMPose top-down refinement, Halpe-26 w/ feet (pass 2)
+    "onnxruntime>=1.18.0",         # inference backend for rtmlib
+    "opencv-python-headless>=4.8.0",  # video I/O (headless: no imshow used)
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",               # signal processing (Savitzky-Golay, FFT, peaks)
+    "librosa>=0.10.0",             # beat / tempo detection (pulls numba, llvmlite)
+    "soundfile>=0.12.0",           # audio backend for librosa
+    "imageio-ffmpeg>=0.4.9",       # bundled ffmpeg binary (no system install needed)
+    "yt-dlp>=2024.1.0",            # YouTube / video download (used in-process, not subprocess)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.21",
+    "pytest>=8.0",
+]
+
+[project.scripts]
+refframe-engine = "refframe_engine.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["refframe_engine"]

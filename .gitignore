@@ -1,0 +1,28 @@
+# Node
+node_modules/
+dist/
+out/
+*.log*
+.eslintcache
+
+# Python
+__pycache__/
+*.pyc
+engine/.venv/
+engine/.venv-build/
+engine/dist/
+engine/build/
+*.egg-info/
+
+# resources/pro_baselines is COMMITTED (small metrics JSON manifest) — do not ignore it.
+
+# Personal data — never commit videos, poses, or session outputs
+*.mp4
+*.mov
+*_poses.json
+library/
+models/
+
+# OS / editor
+Thumbs.db
+.DS_Store
