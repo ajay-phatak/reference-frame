@@ -317,7 +317,11 @@ function Pros({ config }: Props): React.JSX.Element {
 
           <div style={{ marginTop: 16, borderTop: '1px solid var(--border-1)', paddingTop: 16 }}>
             <h4>Find the couple</h4>
-            <p className="muted tiny">Click the LEAD of the couple first, then the partner.</p>
+            <p className="muted tiny">
+              Pick a timestamp where both dancers are fully in frame and clearly separated — not
+              overlapping, mid-lift, or hidden behind anyone. Then click the LEAD of the couple
+              first, then the partner.
+            </p>
             <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
               <label className="check-label">
                 Timestamp (seconds)

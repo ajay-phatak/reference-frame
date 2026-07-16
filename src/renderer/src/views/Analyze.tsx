@@ -347,6 +347,10 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
             }}
           >
             <h4>Pick yourself out of the crowd</h4>
+            <p className="muted tiny">
+              Pick a timestamp where you and your partner are both fully in frame and clearly
+              separated from other dancers.
+            </p>
             <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
               <label className="check-label">
                 Timestamp (seconds)
