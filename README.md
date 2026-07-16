@@ -6,7 +6,7 @@
 
 **[Get the latest release (Windows)](https://github.com/ajay-phatak/reference-frame/releases/latest)** — download the `-setup.exe` under Assets and run it.
 
-> The installer is large (roughly 600–800 MB) because it bundles a full CPU build of PyTorch and the computer-vision engine — no separate Python install is needed.
+> The installer is large (roughly 350 MB, ~1 GB installed) because it bundles a full CPU build of PyTorch and the computer-vision engine — no separate Python install is needed.
 
 > **Windows SmartScreen note:** the installer isn't code-signed, so Windows will warn about an unknown publisher. Click **More info → Run anyway**.
 
