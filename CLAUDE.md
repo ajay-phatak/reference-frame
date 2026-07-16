@@ -16,7 +16,9 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
   (`--index-url .../whl/cpu`) or the bundle balloons with CUDA. Dev engine
   venv lives at `engine/.venv/` (created manually, not by this script).
 - `npm run build:win` — installer; expects the engine build to exist first.
-- Release: bump `package.json` version, tag `v*`, push the tag — GitHub
+- Release: complete the human pass in `docs/release-checklist.md` FIRST
+  (the user walks the packaged app end-to-end — never tag without it),
+  then bump `package.json` version, tag `v*`, push the tag — GitHub
   Actions builds and drafts the release. electron-builder often leaves a
   duplicate partial draft: publish the one WITH `latest.yml`, delete the stub.
 
@@ -91,8 +93,7 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
 
 ## Roadmap state
 
-Phase 0 (scaffold) done. Phase 1 is the headless engine (another workstream
-owns `engine/`); phases 2-4 add shell/report views, seed flow + YouTube +
-onboarding, then the coach. `scripts/build-engine.ps1`, `prompts/
-coach-system.md`, and `src/main/coach/` do not exist yet — they arrive with
-their phases.
+Phases 0-4 done: engine, shell/report views, seed flow + YouTube +
+onboarding, and the coach (both backends) are all built and live-verified.
+Remaining for v0.1.0 (phase 5): frozen-engine rebuild, in-app UI pass +
+live YouTube E2E, icon, README, tag, clean-machine install test.
