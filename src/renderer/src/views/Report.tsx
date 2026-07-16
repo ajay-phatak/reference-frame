@@ -20,6 +20,7 @@ function sourceLabel(
 interface Props {
   runId: string
   onBack: () => void
+  onAskCoach: (runId: string) => void
 }
 
 function fmtDate(iso: string): string {
@@ -47,7 +48,7 @@ function GapRowLine({ row }: { row: GapRow }): React.JSX.Element {
   )
 }
 
-function Report({ runId, onBack }: Props): React.JSX.Element {
+function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
   // Keyed by runId so a fetch for a stale runId (still resolving after the
   // user picked a different run) never clobbers newer state, and "loading"
   // is derivable without a synchronous setState at the top of the effect.
@@ -131,7 +132,10 @@ function Report({ runId, onBack }: Props): React.JSX.Element {
       <div className="row-between">
         <button onClick={onBack}>← Library</button>
         <div className="row">
-          <button disabled title="Coming in phase 4">
+          <button
+            disabled={run.status !== 'done' || !reportText}
+            onClick={() => onAskCoach(runId)}
+          >
             Ask the coach
           </button>
           <button

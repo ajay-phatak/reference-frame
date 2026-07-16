@@ -15,6 +15,7 @@ function App(): React.JSX.Element {
   const [update, setUpdate] = useState<UpdateCheck | null>(null)
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
+  const [coachRunId, setCoachRunId] = useState<string | null>(null)
 
   useEffect(() => {
     window.api.checkUpdate().then((u) => {
@@ -32,7 +33,15 @@ function App(): React.JSX.Element {
 
   const goTo = (v: View): void => {
     setRunId(null)
+    setCoachRunId(null)
     setView(v)
+  }
+
+  // "Ask the coach" on a Report hands off to the Coach view, seeded to that
+  // run instead of the newest one.
+  const askCoach = (id: string): void => {
+    setCoachRunId(id)
+    setView('Coach')
   }
 
   if (config && !config.onboarded) {
@@ -70,11 +79,11 @@ function App(): React.JSX.Element {
             {view === 'Analyze' && <Analyze config={config} onAnalyzed={openRun} />}
             {view === 'Library' &&
               (runId ? (
-                <Report runId={runId} onBack={() => setRunId(null)} />
+                <Report runId={runId} onBack={() => setRunId(null)} onAskCoach={askCoach} />
               ) : (
                 <Library onOpen={openRun} />
               ))}
-            {view === 'Coach' && <Coach />}
+            {view === 'Coach' && <Coach initialRunId={coachRunId ?? undefined} />}
             {view === 'Settings' && <Settings config={config} onSaved={setConfig} />}
           </>
         )}

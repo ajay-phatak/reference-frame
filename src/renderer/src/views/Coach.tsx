@@ -53,7 +53,11 @@ function runLabel(r: RunRecord): string {
   return `${r.videoName} · ${date}`
 }
 
-function Coach(): React.JSX.Element {
+interface Props {
+  initialRunId?: string
+}
+
+function Coach({ initialRunId }: Props): React.JSX.Element {
   const [status, setStatus] = useState<CoachStatus | null>(null)
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [runId, setRunId] = useState<string>('')
@@ -72,8 +76,12 @@ function Coach(): React.JSX.Element {
     window.api.libraryList().then((list) => {
       const done = list.filter((r) => r.status === 'done' && r.resultPaths.reportPath)
       setRuns(done)
-      if (done.length > 0) setRunId(done[0].runId) // newest-first
+      // "Ask the coach" from the Report view seeds a specific run; otherwise
+      // default to the newest.
+      if (initialRunId && done.some((r) => r.runId === initialRunId)) setRunId(initialRunId)
+      else if (done.length > 0) setRunId(done[0].runId) // newest-first
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => window.api.onCoachDelta((text) => setStreaming((s) => s + text)), [])
