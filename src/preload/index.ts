@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AddProOptions,
+  AddProResult,
   AnalyzeOptions,
   AnalyzeResult,
   AppConfig,
@@ -10,6 +12,9 @@ import type {
   CoachStatus,
   DoctorResult,
   EngineEvent,
+  ProEntry,
+  ProSeedPreviewOptions,
+  ProSeedPreviewResult,
   ReferenceFrameApi,
   RunDetail,
   RunRecord,
@@ -47,6 +52,17 @@ const api: ReferenceFrameApi = {
     const listener = (_e: Electron.IpcRendererEvent, payload: EngineEvent): void => cb(payload)
     ipcRenderer.on('engine:event', listener)
     return () => ipcRenderer.removeListener('engine:event', listener)
+  },
+  // Pros (v0.2.0)
+  prosList: (): Promise<ProEntry[]> => ipcRenderer.invoke('pros:list'),
+  prosRemove: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('pros:remove', id),
+  prosSeedPreview: (opts: ProSeedPreviewOptions): Promise<ProSeedPreviewResult> =>
+    ipcRenderer.invoke('pros:seedPreview', opts),
+  prosAdd: (opts: AddProOptions): Promise<AddProResult> => ipcRenderer.invoke('pros:add', opts),
+  onProsEvent: (cb: (e: EngineEvent) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, payload: EngineEvent): void => cb(payload)
+    ipcRenderer.on('pros:event', listener)
+    return () => ipcRenderer.removeListener('pros:event', listener)
   },
   // Coach (phase 4). API key plaintext crosses only inbound on set; status
   // returns configured + last4 only.

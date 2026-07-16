@@ -158,6 +158,51 @@ export interface RunDetail {
   gapText: string | null
 }
 
+// ---- Pros (v0.2.0) — user-managed pro baselines ----
+
+export interface ProEntry {
+  id: string
+  label: string
+  couple: string
+  lead_id: number
+  metrics: string
+  addedAt: string
+}
+
+export interface ProSeedPreviewOptions {
+  input: string
+  atSec: number
+  poseModel: AppConfig['poseModel']
+  jobId?: string | null
+}
+
+export interface ProSeedPreviewResult {
+  ok: boolean
+  jobId?: string
+  reason?: string
+  dets?: SeedDetection[]
+  frameIdx?: number
+  tSec?: number
+  video?: string
+  image?: string
+}
+
+export interface AddProOptions {
+  jobId: string
+  input: string
+  poseModel: AppConfig['poseModel']
+  seedMeIdx: number
+  seedPartnerIdx: number
+  label: string
+  couple: string
+}
+
+export interface AddProResult {
+  ok: boolean
+  reason?: string
+  pro?: ProEntry
+}
+
 // ---- Coach (phase 4) ----
 
 export type CoachModel = 'opus' | 'sonnet' | 'haiku'
@@ -237,6 +282,12 @@ export interface ReferenceFrameApi {
   libraryDelete: (runId: string) => Promise<{ ok: boolean }>
   libraryOpenFolder: (runId: string) => Promise<{ ok: boolean }>
   onEngineEvent: (cb: (e: EngineEvent) => void) => () => void
+  // Pros (v0.2.0)
+  prosList: () => Promise<ProEntry[]>
+  prosRemove: (id: string) => Promise<{ ok: boolean }>
+  prosSeedPreview: (opts: ProSeedPreviewOptions) => Promise<ProSeedPreviewResult>
+  prosAdd: (opts: AddProOptions) => Promise<AddProResult>
+  onProsEvent: (cb: (e: EngineEvent) => void) => () => void
   // Coach (phase 4)
   pickNotesFolder: () => Promise<string | null>
   coachStatus: () => Promise<CoachStatus>

@@ -4,10 +4,11 @@ import Analyze from './views/Analyze'
 import Coach from './views/Coach'
 import Library from './views/Library'
 import Onboarding from './views/Onboarding'
+import Pros from './views/Pros'
 import Report from './views/Report'
 import Settings from './views/Settings'
 
-const VIEWS = ['Analyze', 'Library', 'Coach', 'Settings'] as const
+const VIEWS = ['Analyze', 'Library', 'Pros', 'Coach', 'Settings'] as const
 type View = (typeof VIEWS)[number]
 
 function App(): React.JSX.Element {
@@ -83,6 +84,7 @@ function App(): React.JSX.Element {
               ) : (
                 <Library onOpen={openRun} />
               ))}
+            {view === 'Pros' && <Pros config={config} />}
             {view === 'Coach' && <Coach initialRunId={coachRunId ?? undefined} />}
             {view === 'Settings' && <Settings config={config} onSaved={setConfig} />}
           </>

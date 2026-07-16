@@ -1,12 +1,14 @@
 import { app, shell, dialog, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, rmSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { EngineJob, EngineEvent, proRefsPath } from './engine'
+import { EngineJob, EngineEvent } from './engine'
 import { loadConfig, saveConfig, dataDir, AppConfig } from './config'
 import * as library from './library'
 import type { RunOptions } from './library'
+import * as pros from './pros'
 import { setKey, clearKey, keyStatus } from './coach/key'
 import { parseAdvice, type CoachGap } from './coach/advise'
 import {
@@ -60,6 +62,15 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('app.referenceframe')
+
+  // Sweep pros_work leftovers. A failed add-pro job deliberately keeps its
+  // scratch dir (an immediate retry reuses the 25-48 MB pose cache), but
+  // nothing running at startup can still want one.
+  try {
+    rmSync(join(dataDir(), 'pros_work'), { recursive: true, force: true })
+  } catch {
+    // best-effort — a locked file just delays cleanup to the next launch
+  }
 
   // F12 devtools in dev, ignore CmdOrCtrl+R in production.
   app.on('browser-window-created', (_, window) => {
@@ -163,7 +174,13 @@ app.whenReady().then(() => {
     if (opts.meId != null) args.push('--me-id', String(opts.meId))
     if (opts.partner) args.push('--partner')
     if (opts.spotlight) args.push('--spotlight')
-    if (opts.comparePros) args.push('--compare-pros', '--pro-refs', proRefsPath())
+    // Only compare against pros the user actually configured (Pros tab) — a
+    // missing/empty manifest is handled gracefully by the engine, but there's
+    // no point spawning the comparison at all with zero pros.
+    if (opts.comparePros) {
+      const refs = pros.activeProRefs()
+      if (refs) args.push('--compare-pros', '--pro-refs', refs)
+    }
     if (opts.seedMeIdx != null) args.push('--seed-me-idx', String(opts.seedMeIdx))
     if (opts.seedPartnerIdx != null) args.push('--seed-partner-idx', String(opts.seedPartnerIdx))
 
@@ -330,6 +347,188 @@ app.whenReady().then(() => {
     const dir = library.runDirPath(dataDir(), runId)
     const err = await shell.openPath(dir)
     return { ok: err === '' }
+  })
+
+  // ------------------------------------------------------------------------
+  // Pros (v0.2.0) — user-managed pro baselines. Adding a pro is its own job:
+  // seed-preview (pick the LEAD, then the partner) -> analyze (role forced to
+  // "lead" so the manifest's lead_id lines up with the engine's you_id_raw
+  // semantics, compare-pros always off) -> export-baseline. Both engine
+  // invocations write into a scratch pros_work/<jobId> dir (never the runs
+  // library); on success only the KB-scale metrics JSON survives — the
+  // pose cache (25-48 MB) is deleted along with the rest of the scratch dir.
+  // ------------------------------------------------------------------------
+
+  ipcMain.handle('pros:list', () => pros.list())
+  ipcMain.handle('pros:remove', (_e, id: string) => ({ ok: pros.remove(id) }))
+
+  function prosWorkDir(jobId: string): string {
+    return join(dataDir(), 'pros_work', jobId)
+  }
+
+  interface ProSeedPreviewArgs {
+    input: string
+    atSec: number
+    poseModel: string
+    jobId?: string | null
+  }
+
+  ipcMain.handle('pros:seedPreview', async (event, opts: ProSeedPreviewArgs) => {
+    if (activeJob) return { ok: false, reason: 'busy' }
+
+    const jobId = opts.jobId ?? randomUUID()
+    const dir = prosWorkDir(jobId)
+
+    const args = [
+      'seed-preview',
+      opts.input,
+      '--at',
+      String(opts.atSec),
+      '--out-dir',
+      dir,
+      '--data-dir',
+      dataDir(),
+      '--pose-model',
+      opts.poseModel
+    ]
+
+    const job = new EngineJob()
+    activeJob = job
+    let resultEvent: EngineEvent | undefined
+    let errorMsg: string | undefined
+    try {
+      const exitCode = await job.run(args, (e: EngineEvent) => {
+        if (e.event === 'result') resultEvent = e
+        if (e.event === 'error' && typeof e.msg === 'string') errorMsg = e.msg
+        event.sender.send('pros:event', e)
+      })
+      if (exitCode === 0 && resultEvent && resultEvent.kind === 'seed_preview') {
+        const seedPngPath = String(resultEvent.seed_png ?? '')
+        const image = `data:image/png;base64,${readFileSync(seedPngPath).toString('base64')}`
+        return {
+          ok: true,
+          jobId,
+          dets: resultEvent.dets,
+          frameIdx: resultEvent.frame_idx,
+          tSec: resultEvent.t_sec,
+          video: resultEvent.video_path,
+          image
+        }
+      }
+      const reason = errorMsg ?? `engine exited with code ${exitCode}`
+      return { ok: false, jobId, reason }
+    } catch (err) {
+      return { ok: false, jobId, reason: String(err) }
+    } finally {
+      activeJob = null
+    }
+  })
+
+  interface AddProArgs {
+    jobId: string
+    input: string
+    poseModel: string
+    seedMeIdx: number
+    seedPartnerIdx: number
+    label: string
+    couple: string
+  }
+
+  ipcMain.handle('pros:add', async (event, opts: AddProArgs) => {
+    if (activeJob) return { ok: false, reason: 'busy' }
+
+    const dir = prosWorkDir(opts.jobId)
+    if (!existsSync(dir)) return { ok: false, reason: 'Job not found — run seed preview first' }
+
+    const label = opts.label.trim()
+    const couple = opts.couple.trim()
+    if (!label || !couple) return { ok: false, reason: 'Label and couple are required' }
+
+    const analyzeArgs = [
+      'analyze',
+      opts.input,
+      '--out-dir',
+      dir,
+      '--data-dir',
+      dataDir(),
+      '--me',
+      'left',
+      '--role',
+      'lead',
+      '--pose-model',
+      opts.poseModel,
+      '--seed-me-idx',
+      String(opts.seedMeIdx),
+      '--seed-partner-idx',
+      String(opts.seedPartnerIdx)
+    ]
+    // compare-pros is deliberately never passed here — a pro baseline is
+    // never itself compared against the pro library.
+
+    const analyzeJob = new EngineJob()
+    activeJob = analyzeJob
+    let analyzeResult: EngineEvent | undefined
+    let analyzeErrorMsg: string | undefined
+    try {
+      const analyzeExit = await analyzeJob.run(analyzeArgs, (e: EngineEvent) => {
+        if (e.event === 'result') analyzeResult = e
+        if (e.event === 'error' && typeof e.msg === 'string') analyzeErrorMsg = e.msg
+        event.sender.send('pros:event', e)
+      })
+      if (analyzeExit !== 0 || !analyzeResult || analyzeResult.kind !== 'analysis') {
+        return { ok: false, reason: analyzeErrorMsg ?? `engine exited with code ${analyzeExit}` }
+      }
+
+      const posesPath = String(analyzeResult.poses_path)
+      const videoPath = String(analyzeResult.video_path)
+      const leadId = Number(analyzeResult.you_id_raw)
+
+      const metricsFilename = pros.uniqueMetricsFilename(label)
+      const outPath = join(pros.proBaselinesDir(), metricsFilename)
+
+      const exportArgs = [
+        'export-baseline',
+        videoPath,
+        posesPath,
+        '--label',
+        label,
+        '--couple',
+        couple,
+        '--lead-id',
+        String(leadId),
+        '--out',
+        outPath
+      ]
+
+      const exportJob = new EngineJob()
+      activeJob = exportJob
+      let exportResult: EngineEvent | undefined
+      let exportErrorMsg: string | undefined
+      const exportExit = await exportJob.run(exportArgs, (e: EngineEvent) => {
+        if (e.event === 'result') exportResult = e
+        if (e.event === 'error' && typeof e.msg === 'string') exportErrorMsg = e.msg
+        event.sender.send('pros:event', e)
+      })
+      if (
+        exportExit !== 0 ||
+        !exportResult ||
+        exportResult.kind !== 'export_baseline' ||
+        !exportResult.entry
+      ) {
+        return { ok: false, reason: exportErrorMsg ?? `engine exited with code ${exportExit}` }
+      }
+
+      const entry = exportResult.entry as pros.ExportedBaselineEntry
+      const added = pros.add(entry)
+
+      rmSync(dir, { recursive: true, force: true })
+
+      return { ok: true, pro: added }
+    } catch (err) {
+      return { ok: false, reason: String(err) }
+    } finally {
+      activeJob = null
+    }
   })
 
   // ------------------------------------------------------------------------

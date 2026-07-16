@@ -1,61 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AppConfig, EngineEvent, SeedDetection } from '../../../preload/index.d'
+import {
+  looksLikeYoutubeUrl,
+  makeSeedBoxClickHandler,
+  sortedStages,
+  type StageState
+} from './engineProgress'
+import { ProgressBlock, SeedPicker, VideoInput } from './shared'
 
 interface Props {
   config: AppConfig
   onAnalyzed: (runId: string) => void
-}
-
-interface StageState {
-  current: number
-  total: number
-  detail?: string
-  startedAt: number
-}
-
-const STAGE_ORDER = [
-  'download',
-  'seed',
-  'extract',
-  'refine',
-  'lift',
-  'metrics',
-  'report',
-  'gap'
-] as const
-const STAGE_LABELS: Record<string, string> = {
-  download: 'Download video',
-  seed: 'Locate dancers',
-  extract: 'Detect poses',
-  refine: 'Refine keypoints',
-  lift: 'Lift to 3D',
-  metrics: 'Compute metrics',
-  report: 'Build report',
-  gap: 'Compare vs pros'
-}
-
-function stagePct(s: StageState): number {
-  if (s.total > 0) return Math.max(0, Math.min(100, Math.round((s.current / s.total) * 100)))
-  return s.current > 0 ? 100 : 0
-}
-
-// ETA from the observed rate so far — only meaningful once a stage has moved
-// past its first tick and knows its total (extract/refine/download; the
-// discrete 0/1 stages skip this).
-function etaLabel(s: StageState): string | null {
-  if (s.total <= 1 || s.current <= 0) return null
-  const elapsed = Date.now() - s.startedAt
-  if (elapsed <= 0) return null
-  const rate = s.current / elapsed
-  if (rate <= 0) return null
-  const remainingMs = (s.total - s.current) / rate
-  const secs = Math.round(remainingMs / 1000)
-  if (secs <= 0) return null
-  return secs < 60 ? `~${secs}s left` : `~${Math.round(secs / 60)}m left`
-}
-
-function looksLikeYoutubeUrl(s: string): boolean {
-  return /^https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)/i.test(s)
 }
 
 function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
@@ -73,6 +28,14 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
   const [spotlight, setSpotlight] = useState(false)
   const [comparePros, setComparePros] = useState(true)
   const [poseModel, setPoseModel] = useState(config.poseModel)
+
+  // Gap comparison needs at least one user-added pro (Pros tab) — with none
+  // configured, force the toggle off and explain why instead of letting the
+  // user flip on a control that silently does nothing.
+  const [hasPros, setHasPros] = useState<boolean | null>(null)
+  useEffect(() => {
+    window.api.prosList().then((list) => setHasPros(list.length > 0))
+  }, [])
 
   const [running, setRunning] = useState(false)
   const [stageProgress, setStageProgress] = useState<Record<string, StageState>>({})
@@ -142,7 +105,7 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
         role,
         partner: partnerToggle,
         spotlight,
-        comparePros,
+        comparePros: comparePros && hasPros === true,
         partnerName: partnerName.trim() || null
       })
       if (res.ok) {
@@ -171,21 +134,12 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
     setSeedImgNatural({ w: img.naturalWidth, h: img.naturalHeight })
   }
 
-  const clickSeedBox = (idx: number): void => {
-    if (idx === seedMeIdx) {
-      setSeedMeIdx(null)
-      return
-    }
-    if (idx === seedPartnerIdx) {
-      setSeedPartnerIdx(null)
-      return
-    }
-    if (seedMeIdx === null) {
-      setSeedMeIdx(idx)
-    } else if (seedPartnerIdx === null) {
-      setSeedPartnerIdx(idx)
-    }
-  }
+  const clickSeedBox = makeSeedBoxClickHandler(
+    seedMeIdx,
+    seedPartnerIdx,
+    setSeedMeIdx,
+    setSeedPartnerIdx
+  )
 
   const resetPicks = (): void => {
     setSeedMeIdx(null)
@@ -227,7 +181,7 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
         partner: partnerToggle,
         spotlight,
         poseModel,
-        comparePros,
+        comparePros: comparePros && hasPros === true,
         partnerName: partnerName.trim() || null,
         ...(crowdMode ? { runId: seedRunId, seedMeIdx, seedPartnerIdx } : {})
       })
@@ -248,17 +202,8 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
     window.api.cancelAnalyze()
   }
 
-  const stages = Object.keys(stageProgress).sort(
-    (a, b) =>
-      STAGE_ORDER.indexOf(a as (typeof STAGE_ORDER)[number]) -
-      STAGE_ORDER.indexOf(b as (typeof STAGE_ORDER)[number])
-  )
-
-  const seedStages = Object.keys(seedStageProgress).sort(
-    (a, b) =>
-      STAGE_ORDER.indexOf(a as (typeof STAGE_ORDER)[number]) -
-      STAGE_ORDER.indexOf(b as (typeof STAGE_ORDER)[number])
-  )
+  const stages = sortedStages(stageProgress)
+  const seedStages = sortedStages(seedStageProgress)
 
   const runDisabled =
     !input || running || (crowdMode && (seedMeIdx == null || seedPartnerIdx == null))
@@ -269,39 +214,17 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
       <p className="muted">Run the analysis pipeline on a practice video.</p>
 
       <div className="card">
-        <div className="row" style={{ marginBottom: 8 }}>
-          <button
-            className={`toggle-btn${inputMode === 'file' ? ' active' : ''}`}
-            disabled={running}
-            onClick={() => setInputMode('file')}
-          >
-            Video file
-          </button>
-          <button
-            className={`toggle-btn${inputMode === 'url' ? ' active' : ''}`}
-            disabled={running}
-            onClick={() => setInputMode('url')}
-          >
-            YouTube URL
-          </button>
-        </div>
-
-        {inputMode === 'file' ? (
-          <div className="row">
-            <button disabled={running} onClick={pickFile}>
-              Choose video…
-            </button>
-            <span className="mono tiny muted">{filePath || 'No file selected'}</span>
-          </div>
-        ) : (
-          <div>
-            <input
-              style={{ width: '100%' }}
-              placeholder="https://www.youtube.com/watch?v=…"
-              value={url}
-              disabled={running}
-              onChange={(e) => setUrl(e.target.value)}
-            />
+        <VideoInput
+          inputMode={inputMode}
+          setInputMode={setInputMode}
+          filePath={filePath}
+          onPickFile={pickFile}
+          url={url}
+          setUrl={setUrl}
+          disabled={running}
+        />
+        {inputMode === 'url' && (
+          <>
             <p className="muted tiny" style={{ marginTop: 4 }}>
               Downloads in-process before analysis starts — not yet verified end-to-end, but the
               engine supports it.
@@ -312,7 +235,7 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
                 supported video link.
               </p>
             )}
-          </div>
+          </>
         )}
 
         <h4>Options</h4>
@@ -390,11 +313,19 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
           <label className="check-label">
             <input
               type="checkbox"
-              checked={comparePros}
-              disabled={running}
+              checked={comparePros && hasPros === true}
+              disabled={running || hasPros !== true}
               onChange={(e) => setComparePros(e.target.checked)}
             />{' '}
             Compare to pros
+            {hasPros === false && (
+              <>
+                {' '}
+                <span className="muted tiny">
+                  — Add pros in the Pros tab to enable gap comparison
+                </span>
+              </>
+            )}
           </label>
           <label className="check-label">
             <input
@@ -443,35 +374,13 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
 
             {(seedLoading || seedStages.length > 0) && (
               <div style={{ marginTop: 12 }}>
-                {seedStages.length === 0 && <p className="muted tiny">Starting…</p>}
-                {seedStages.map((stage) => {
-                  const s = seedStageProgress[stage]
-                  const pct = stagePct(s)
-                  const eta = etaLabel(s)
-                  return (
-                    <div key={stage} className="stage-row">
-                      <div className="row-between">
-                        <span className="small">{STAGE_LABELS[stage] ?? stage}</span>
-                        <span className="muted tiny">
-                          {pct}%{eta ? ` · ${eta}` : ''}
-                        </span>
-                      </div>
-                      <div className="bar-track">
-                        <div className="bar-fill" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  )
-                })}
-                {seedLogs.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <button className="btn-sm" onClick={() => setSeedShowLog((v) => !v)}>
-                      {seedShowLog ? 'Hide log' : `Show log (${seedLogs.length})`}
-                    </button>
-                    {seedShowLog && (
-                      <pre className="log-tail">{seedLogs.slice(-200).join('\n')}</pre>
-                    )}
-                  </div>
-                )}
+                <ProgressBlock
+                  stages={seedStages}
+                  stageProgress={seedStageProgress}
+                  logs={seedLogs}
+                  showLog={seedShowLog}
+                  onToggleLog={() => setSeedShowLog((v) => !v)}
+                />
               </div>
             )}
 
@@ -482,41 +391,15 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
                     Frame at t≈{seedTSec?.toFixed(1) ?? '?'}s (frame #{seedFrameIdx ?? '?'})
                   </p>
                 )}
-                <div className="seed-frame">
-                  <img
-                    src={seedImage}
-                    style={{ maxWidth: '100%', display: 'block' }}
-                    onLoad={onSeedImgLoad}
-                    alt="Seed frame with detected dancers"
-                  />
-                  {seedImgNatural &&
-                    seedDets &&
-                    seedDets.map((det) => {
-                      const [x0, y0, x1, y1] = det.box
-                      const boxCls =
-                        det.idx === seedMeIdx
-                          ? 'seed-box seed-box-me'
-                          : det.idx === seedPartnerIdx
-                            ? 'seed-box seed-box-partner'
-                            : 'seed-box'
-                      return (
-                        <button
-                          key={det.idx}
-                          type="button"
-                          className={boxCls}
-                          style={{
-                            left: `${(x0 / seedImgNatural.w) * 100}%`,
-                            top: `${(y0 / seedImgNatural.h) * 100}%`,
-                            width: `${((x1 - x0) / seedImgNatural.w) * 100}%`,
-                            height: `${((y1 - y0) / seedImgNatural.h) * 100}%`
-                          }}
-                          onClick={() => clickSeedBox(det.idx)}
-                        >
-                          <span className="seed-box-label">{det.idx}</span>
-                        </button>
-                      )
-                    })}
-                </div>
+                <SeedPicker
+                  image={seedImage}
+                  dets={seedDets ?? []}
+                  imgNatural={seedImgNatural}
+                  onImgLoad={onSeedImgLoad}
+                  firstIdx={seedMeIdx}
+                  secondIdx={seedPartnerIdx}
+                  onClickBox={clickSeedBox}
+                />
 
                 <div className="row" style={{ marginTop: 8, flexWrap: 'wrap', gap: 12 }}>
                   <label className="check-label">
@@ -574,35 +457,13 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
       {(running || stages.length > 0) && (
         <div className="card">
           <h4>Progress</h4>
-          {stages.length === 0 && <p className="muted tiny">Starting…</p>}
-          {stages.map((stage) => {
-            const s = stageProgress[stage]
-            const pct = stagePct(s)
-            const eta = etaLabel(s)
-            return (
-              <div key={stage} className="stage-row">
-                <div className="row-between">
-                  <span className="small">{STAGE_LABELS[stage] ?? stage}</span>
-                  <span className="muted tiny">
-                    {pct}%{eta ? ` · ${eta}` : ''}
-                  </span>
-                </div>
-                <div className="bar-track">
-                  <div className="bar-fill" style={{ width: `${pct}%` }} />
-                </div>
-                {s.detail && <div className="muted tiny">{s.detail}</div>}
-              </div>
-            )
-          })}
-
-          {logs.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <button className="btn-sm" onClick={() => setShowLog((v) => !v)}>
-                {showLog ? 'Hide log' : `Show log (${logs.length})`}
-              </button>
-              {showLog && <pre className="log-tail">{logs.slice(-200).join('\n')}</pre>}
-            </div>
-          )}
+          <ProgressBlock
+            stages={stages}
+            stageProgress={stageProgress}
+            logs={logs}
+            showLog={showLog}
+            onToggleLog={() => setShowLog((v) => !v)}
+          />
         </div>
       )}
     </div>

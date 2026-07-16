@@ -16,11 +16,11 @@ asarUnpack:
   - resources/**
 # The PyInstaller-built engine (scripts/build-engine.ps1 -> engine/dist)
 # ships beside the app and is resolved via process.resourcesPath/engine.
+# Pro baselines are no longer bundled (v0.2.0+) — users add their own via the
+# Pros tab; the manifest + metrics JSON live in userData, not extraResources.
 extraResources:
   - from: engine/dist/refframe-engine
     to: engine
-  - from: resources/pro_baselines
-    to: pro_baselines
 win:
   executableName: reference-frame
 nsis:

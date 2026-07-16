@@ -33,15 +33,6 @@ function resolveEngine(): EngineCommand {
   }
 }
 
-// Absolute path to the bundled pro-baselines manifest, dev vs packaged.
-export function proRefsPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'pro_baselines', 'baselines.json')
-  }
-  const repoRoot = join(__dirname, '..', '..')
-  return join(repoRoot, 'resources', 'pro_baselines', 'baselines.json')
-}
-
 export class EngineJob {
   private child: ChildProcess | null = null
 
