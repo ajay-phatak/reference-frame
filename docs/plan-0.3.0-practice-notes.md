@@ -27,6 +27,36 @@ What 0.3.0 adds is the WRITE side, mirroring the proven nojohns notes-tier
 conventions (see `C:\Users\wizar\Projects\nojohns-test-vault` for a live
 example of the target shapes).
 
+## Prior art — the wcs-analyze skill (read this before implementing)
+
+`C:\Users\wizar\Projects\Dance Analysis\wcs-analyze-skill\SKILL.md`, section
+"Bridging gaps to your notes", is the product spec the app's read side was
+ported from, and it documents the REAL environment the notes folder will be:
+
+- The author's actual notes are an Obsidian vault; WCS lesson notes live
+  under `West Coast Swing/` with filenames `<Instructor> <date>.md`
+  (`Keerigan 6-20-25.md`, `keerigan and mia 2-27-26.md`) — instructor + date
+  for citations are parsed FROM THE FILENAME. The user will point the app at
+  that subtree (scoping = whichever folder they pick; the app never needs
+  the skill's "exclude Ballroom/" rule because the user just points deeper).
+- The skill retrieves via Obsidian MCP (search_vault_simple + get_backlinks
+  on hub notes like `Movement - Concepts.md` + get_vault_file);
+  `excerpts.ts`/`hubmap.ts` is the deliberate MCP-free grep port of the same
+  hub map. Hub-backlink expansion is the one retrieval trick the app lacks —
+  possible future upgrade, not 0.3.0 scope.
+- Recommendation shape (already reflected in prompts/coach-system.md):
+  stat finding → cited instruction (quoted/paraphrased) with lesson + date →
+  suggested practice focus. Same never-invent guardrails.
+- The skill WRITES `<video_stem>_practice_notes.txt` next to the report —
+  not into the vault. 0.3.0's writer is exactly the "write it back" step the
+  skill never had.
+
+Real-vault consequences for the writer: app-written files must not
+masquerade as lesson notes (keep them under `Sessions/` + `generator:
+refframe` frontmatter — never `<Instructor> <date>.md`-shaped names), and
+plain atomic file writes are Obsidian-sync-safe (Obsidian picks up external
+edits; no vault index to maintain).
+
 ## Design
 
 ### 1. Writer engine — `src/main/notes/writer.ts`
