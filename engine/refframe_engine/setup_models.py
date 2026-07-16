@@ -12,6 +12,7 @@ cli.py is expected to have already set YOLO_CONFIG_DIR / NUMBA_CACHE_DIR /
 rtmlib cache env and monkeypatched pose_lift.CHECKPOINT_DIR before calling here.
 """
 
+import http.client
 import os
 import time
 import urllib.error
@@ -35,38 +36,89 @@ _DOWNLOAD_ATTEMPTS = 3
 _RETRY_BACKOFF_SEC = 2.0
 
 
-def _download(url, dest, stage, attempts=_DOWNLOAD_ATTEMPTS):
-    """urlretrieve with an NDJSON progress reporthook and retry-with-backoff.
-    Writes to a .part file then renames, so an interrupted download never
-    leaves a truncated weight.
+def _crange_total(headers):
+    """Total byte size out of a Content-Range header ("bytes 0-99/1234" or
+    "bytes */1234"), or 0 when absent/unknown ("bytes */*")."""
+    crange = headers.get("Content-Range", "") if headers else ""
+    try:
+        return int(crange.rsplit("/", 1)[1]) if "/" in crange else 0
+    except ValueError:
+        return 0
 
-    Network failures (URLError/OSError — urlretrieve raises these for DNS,
-    connection-reset, and timeout errors alike) are retried `attempts` times
-    with a short backoff, then re-raised as a RuntimeError so callers (and the
-    CLI's `download_failed` error code) see a typed failure instead of a bare
+
+def _fetch_with_resume(url, tmp, stage):
+    """Stream url into tmp, resuming from tmp's current size via a Range
+    request when the server supports it (dl.fbaipublicfiles.com does — it
+    answers 206). A connection cut mid-transfer therefore costs only the
+    remainder, not a from-zero restart of a 170 MB file. Raises OSError (or a
+    urllib/http.client error) on any failure, including a body shorter than
+    the advertised length, so the caller's retry loop fires."""
+    have = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+    req = urllib.request.Request(url)
+    if have:
+        req.add_header("Range", f"bytes={have}-")
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        if resp.status == 206:
+            total = _crange_total(resp.headers)
+            mode = "ab"
+        else:
+            # Server ignored the range (or fresh download): start over.
+            have = 0
+            total = int(resp.headers.get("Content-Length") or 0)
+            mode = "wb"
+        done = have
+        with open(tmp, mode) as fh:
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                done += len(chunk)
+                if total > 0:
+                    events.progress(stage, min(done, total), total)
+    if total > 0 and done < total:
+        raise OSError(f"connection closed early ({done}/{total} bytes)")
+
+
+def _download(url, dest, stage, attempts=_DOWNLOAD_ATTEMPTS):
+    """Streaming download with NDJSON progress, retry-with-backoff, and
+    Range-resume across retries. Writes to a .part file then renames, so an
+    interrupted download never leaves a truncated weight; the .part survives
+    failed attempts (and even a failed run) precisely so resume has something
+    to build on — only bytes from 200/206 responses are ever written to it.
+
+    Network failures (URLError/OSError/HTTPException — DNS, connection-reset,
+    timeout, and short-body errors alike) are retried `attempts` times with a
+    short backoff, then re-raised as a RuntimeError so callers (and the CLI's
+    `download_failed` error code) see a typed failure instead of a bare
     OSError, which would otherwise bypass the RuntimeError handler."""
     tmp = f"{dest}.part"
-
-    def _hook(count, block_size, total_size):
-        if total_size > 0:
-            events.progress(stage, min(count * block_size, total_size), total_size)
 
     last_err = None
     for attempt in range(1, attempts + 1):
         try:
-            urllib.request.urlretrieve(url, tmp, reporthook=_hook)
+            _fetch_with_resume(url, tmp, stage)
             os.replace(tmp, dest)
             return
-        except (OSError, urllib.error.URLError) as e:
-            last_err = e
-            try:
+        except urllib.error.HTTPError as e:
+            if e.code == 416 and os.path.exists(tmp):
+                # Requested range not satisfiable: usually the .part already
+                # holds the whole file (a previous run finished the stream but
+                # died before the rename). A 416 carries "Content-Range:
+                # bytes */<total>" — promote only if the size matches;
+                # otherwise the .part is bogus, drop it and retry fresh.
+                total = _crange_total(e.headers)
+                if total in (0, os.path.getsize(tmp)):
+                    os.replace(tmp, dest)
+                    return
                 os.remove(tmp)
-            except OSError:
-                pass
-            if attempt < attempts:
-                events.log(f"Download attempt {attempt}/{attempts} failed ({e}); retrying …",
-                           level="warning")
-                time.sleep(_RETRY_BACKOFF_SEC * attempt)
+            last_err = e
+        except (OSError, urllib.error.URLError, http.client.HTTPException) as e:
+            last_err = e
+        if attempt < attempts:
+            events.log(f"Download attempt {attempt}/{attempts} failed ({last_err}); retrying …",
+                       level="warning")
+            time.sleep(_RETRY_BACKOFF_SEC * attempt)
     raise RuntimeError(f"Download failed after {attempts} attempts: {url} ({last_err})") from last_err
 
 

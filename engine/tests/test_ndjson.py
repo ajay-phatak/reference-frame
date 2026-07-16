@@ -205,29 +205,58 @@ def test_unexpected_exception_is_terminal_typed_error(ndjson_out, monkeypatch, t
 
 # ── doctor end-to-end (no heavy deps required: imports are try/except'd) ─────
 
-# ── setup_models.py: retry + typed network-failure errors ────────────────────
+# ── setup_models.py: retry + resume + typed network-failure errors ───────────
 # setup_models.py only imports os/time/urllib/paths/events at module level (no
 # torch/ultralytics/cv2), so it's safe to import directly here without the
-# heavy-dep stubbing the analyze tests above need.
+# heavy-dep stubbing the analyze tests above need. _download streams via
+# urllib.request.urlopen, so that's the seam these tests fake.
 
-def test_setup_download_retries_then_succeeds(tmp_path, monkeypatch):
+class _FakeResponse:
+    """Minimal stand-in for urlopen's response: status, headers, chunked
+    read(), context manager. `cut_after` truncates the body mid-stream to
+    simulate a connection dropped before Content-Length bytes arrived."""
+
+    def __init__(self, body, status=200, headers=None, cut_after=None):
+        self._body = body if cut_after is None else body[:cut_after]
+        self.status = status
+        self.headers = headers or {}
+        self._pos = 0
+
+    def read(self, n):
+        chunk = self._body[self._pos:self._pos + n]
+        self._pos += n
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_setup_download_resumes_across_retries(tmp_path, monkeypatch):
     from refframe_engine import setup_models as sm
 
-    calls = {"n": 0}
+    body = b"weights"
+    ranges = []
 
-    def fake_urlretrieve(url, filename, reporthook=None):
-        calls["n"] += 1
-        if calls["n"] < 3:
-            raise OSError(10054, "An existing connection was forcibly closed")
-        Path(filename).write_bytes(b"weights")
+    def fake_urlopen(req, timeout=None):
+        ranges.append(req.get_header("Range"))
+        if len(ranges) == 1:
+            # Full-file attempt dies after 3 of 7 bytes (short body).
+            return _FakeResponse(body, headers={"Content-Length": "7"}, cut_after=3)
+        # Retry must ask for the remainder and get a 206 with just that.
+        assert ranges[-1] == "bytes=3-"
+        return _FakeResponse(body[3:], status=206,
+                             headers={"Content-Range": "bytes 3-6/7"})
 
-    monkeypatch.setattr(sm.urllib.request, "urlretrieve", fake_urlretrieve)
+    monkeypatch.setattr(sm.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(sm.time, "sleep", lambda s: None)  # skip real backoff in tests
 
     dest = tmp_path / "yolov8m-pose.pt"
     sm._download("https://example.invalid/yolov8m-pose.pt", str(dest), "weights")
 
-    assert calls["n"] == 3
+    assert ranges == [None, "bytes=3-"]
     assert dest.read_bytes() == b"weights"
     assert not dest.with_suffix(dest.suffix + ".part").exists()
 
@@ -235,19 +264,21 @@ def test_setup_download_retries_then_succeeds(tmp_path, monkeypatch):
 def test_setup_download_exhausts_retries_raises_runtime_error(tmp_path, monkeypatch):
     from refframe_engine import setup_models as sm
 
-    def always_fail(url, filename, reporthook=None):
-        # urlretrieve raises URLError (an OSError subclass) for connection
-        # resets like WinError 10054 — this is exactly the case that used to
-        # bypass cli.py's RuntimeError handler and land as code "internal".
+    def always_fail(req, timeout=None):
+        # urlopen raises URLError (an OSError subclass) for connection resets
+        # like WinError 10054 — this is exactly the case that used to bypass
+        # cli.py's RuntimeError handler and land as code "internal".
         raise OSError(10054, "An existing connection was forcibly closed")
 
-    monkeypatch.setattr(sm.urllib.request, "urlretrieve", always_fail)
+    monkeypatch.setattr(sm.urllib.request, "urlopen", always_fail)
     monkeypatch.setattr(sm.time, "sleep", lambda s: None)
 
     dest = tmp_path / "yolov8m-pose.pt"
     with pytest.raises(RuntimeError):
         sm._download("https://example.invalid/yolov8m-pose.pt", str(dest), "weights")
     assert not dest.exists()
+    # The connection died before any body bytes, so no .part accumulates
+    # (when bytes HAVE landed, the .part deliberately survives for resume).
     assert not (tmp_path / "yolov8m-pose.pt.part").exists()
 
 
@@ -256,7 +287,12 @@ def test_setup_network_failure_emits_download_failed(ndjson_out, monkeypatch, tm
     surfaced as a RuntimeError by setup_models, per the two tests above) must
     produce a single typed download_failed error event, not fall through to
     the generic "internal" catch-all in cli.main()."""
-    stub = types.ModuleType("refframe_engine.setup_models")
+    # Patch the real module's setup attribute rather than planting a stub
+    # module in sys.modules: cli.py's `from . import setup_models` resolves
+    # via the package attribute once any earlier test has imported the real
+    # module, silently bypassing a sys.modules stub — and then this test runs
+    # a REAL network setup.
+    from refframe_engine import setup_models as sm
 
     def setup(*a, **k):
         raise RuntimeError(
@@ -265,8 +301,7 @@ def test_setup_network_failure_emits_download_failed(ndjson_out, monkeypatch, tm
             "([WinError 10054] An existing connection was forcibly closed by the remote host)"
         )
 
-    stub.setup = setup
-    monkeypatch.setitem(sys.modules, "refframe_engine.setup_models", stub)
+    monkeypatch.setattr(sm, "setup", setup)
 
     rc, objs = _run_cli(["setup", "--data-dir", str(tmp_path)], ndjson_out)
     assert rc != 0

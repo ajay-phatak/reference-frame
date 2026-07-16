@@ -99,3 +99,7 @@ $mins = [math]::Round(((Get-Date) - $buildStart).TotalMinutes, 1)
 Write-Host ""
 Write-Host "Engine built: $exe"
 Write-Host "Build time: $mins min"
+# The doctor smoke intentionally tolerates exit 1 (missing weights), but its
+# $LASTEXITCODE would otherwise leak out as this script's exit code and make
+# every successful build look failed to callers.
+exit 0

@@ -76,6 +76,13 @@ hiddenimports += [
 # cost of a runtime ImportError outweighs the ~40 MB saved.
 excludes = [
     "matplotlib",
+    # polars: an ultralytics core dep (~177 MB), but only reached via training
+    # (Trainer.read_results_csv), benchmark(), the wandb callback, and
+    # plot_labels/plot_results/DataExportMixin.to_df|to_csv — all lazy,
+    # function-local imports (see ultralytics/{engine/trainer,utils/benchmarks,
+    # utils/callbacks/wb,utils/plotting,utils/__init__}.py) that this pipeline
+    # never calls (inference-only: YOLO(...).track/predict).
+    "polars",
     "tkinter",
     "PyQt5",
     "PyQt6",
