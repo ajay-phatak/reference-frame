@@ -1,8 +1,12 @@
 """Pro-baseline manifest loading + export.
 
-The packaged app ships precomputed pro *metrics* JSON (KB-scale), never pro
-videos or pose files (25-48 MB each) — the gap analysis only needs metrics
-dicts. The manifest (`baselines.json`) lists entries:
+Baselines are user-supplied: the app lets a user add their own pro references
+via the Pros tab, computes precomputed pro *metrics* JSON (KB-scale, never pro
+videos or pose files — 25-48 MB each), and manages a manifest under its own
+userData directory. The app passes that manifest's path via `--pro-refs`
+whenever the user has configured at least one pro; it omits
+`--compare-pros`/`--pro-refs` entirely otherwise. The manifest (`baselines.json`)
+lists entries:
 
     [{"label": "...", "couple": "...", "lead_id": 2,
       "metrics": "semion_maria_wotp_2024.metrics.json"}, ...]
@@ -19,25 +23,15 @@ import os
 import pathlib
 
 
-# Candidate locations for the bundled manifest when --pro-refs isn't given.
+# Candidate locations for the manifest when --pro-refs isn't given. The engine
+# ships no bundled baselines of its own — the only non-explicit source is the
+# REFFRAME_BASELINES env var (handy for dev/testing); everything else must
+# come from the app via --pro-refs.
 def _candidate_manifests():
-    import sys
     cands = []
     env = os.environ.get("REFFRAME_BASELINES")
     if env:
         cands.append(pathlib.Path(env))
-    if getattr(sys, "frozen", False):
-        exe_dir = pathlib.Path(sys.executable).parent
-        # electron-builder places extraResources next to / near the exe.
-        cands += [
-            exe_dir / "resources" / "pro_baselines" / "baselines.json",
-            exe_dir / "pro_baselines" / "baselines.json",
-            pathlib.Path(getattr(sys, "_MEIPASS", exe_dir)) / "pro_baselines" / "baselines.json",
-        ]
-    # Repo dev layout: reference-frame/resources/pro_baselines/baselines.json
-    here = pathlib.Path(__file__).resolve()
-    repo_root = here.parents[2]          # refframe_engine → engine → reference-frame
-    cands.append(repo_root / "resources" / "pro_baselines" / "baselines.json")
     return cands
 
 
@@ -51,8 +45,10 @@ def default_manifest_path():
 def load_manifest(pro_refs=None):
     """Load a baselines manifest. Returns {"dir": <manifest dir>, "entries": [...]}.
 
-    `pro_refs` may be a path to a baselines.json; if None, the bundled/dev
-    default is used. Raises FileNotFoundError if nothing resolves.
+    `pro_refs` may be a path to a baselines.json; if None, the REFFRAME_BASELINES
+    env var (dev/testing only) is tried. Raises FileNotFoundError if nothing
+    resolves — callers decide whether that's fatal (it isn't, for a fresh
+    install with no pros configured).
     """
     path = pro_refs or default_manifest_path()
     if not path or not os.path.exists(path):

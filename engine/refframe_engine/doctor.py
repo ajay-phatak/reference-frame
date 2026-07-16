@@ -10,7 +10,10 @@ checklist):
   * videopose3d_checkpoint — VideoPose3D checkpoint present (path + size)
   * ffmpeg                 — imageio-ffmpeg's bundled ffmpeg resolvable
   * torch / onnxruntime    — heavy runtimes importable (frozen-build canary)
-  * baselines_manifest     — pro baselines manifest readable (+ entry count)
+  * baselines_manifest     — pro baselines manifest readable (+ entry count);
+                             no manifest configured is a normal ok=true state
+                             (fresh installs / users with no pros added yet),
+                             a manifest that exists but is broken is ok=false
 
 Exit code 0 when every REQUIRED check passes (baselines are optional — the
 free tier can run without --compare-pros), 1 otherwise.
@@ -84,8 +87,10 @@ def _check_baselines(pro_refs):
     from . import baselines
     try:
         manifest = baselines.load_manifest(pro_refs)
-    except FileNotFoundError as e:
-        return {"ok": False, "error": f"manifest not found: {e}"}
+    except FileNotFoundError:
+        # Normal state for a fresh install / a user with no pros configured yet.
+        return {"ok": True, "entries": 0,
+                "note": "no pro baselines configured (optional — add pros in the Pros tab)"}
     except Exception as e:                     # noqa: BLE001
         return {"ok": False, "error": str(e)}
     entries = manifest["entries"]

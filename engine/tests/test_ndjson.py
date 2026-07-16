@@ -12,6 +12,7 @@ exercised end-to-end is `doctor`, whose heavy imports are try/except'd):
 Full pipeline tests happen in a later phase against a real venv.
 """
 
+import argparse
 import io
 import json
 import sys
@@ -201,6 +202,127 @@ def test_unexpected_exception_is_terminal_typed_error(ndjson_out, monkeypatch, t
     errors = [o for o in objs if o["event"] == "error"]
     assert len(errors) == 1
     assert errors[0]["code"] == "internal"
+
+
+# ── analyze: pro-baseline comparison degrades gracefully ─────────────────────
+#
+# Unlike the CLI-error-path tests above (which stub the whole `refframe_engine
+# .run` module so the real one is never imported), this test exercises the
+# real run.analyze() to verify its compare_pros branch specifically. Importing
+# the real run.py unconditionally imports dance_metrics/dance_review/
+# pose_extraction/pose_lift/pose_refine at module scope, which transitively
+# pull in torch/ultralytics/cv2/librosa and (for pose weights) real network
+# setup — exactly the past bug this suite guards against. So every one of
+# those five vendored siblings is planted in sys.modules as a lightweight fake
+# BEFORE the first `from refframe_engine import run`, the same trick
+# `_stub_run` above uses for the single `pose_lift` import in cli.py.
+
+def test_analyze_compare_pros_missing_manifest_is_non_fatal(ndjson_out, monkeypatch, tmp_path):
+    def _boom(*a, **k):
+        raise AssertionError("heavy vendored code path must not run in this test")
+
+    dm_stub = types.ModuleType("dance_metrics")
+    dm_stub.compute_all_metrics = lambda poses: {
+        "tracking_quality": {"lead": {"coverage_pct": 90.0},
+                             "follow": {"coverage_pct": 88.0}},
+    }
+
+    dr_stub = types.ModuleType("dance_review")
+    dr_stub.build_report = lambda *a, **k: "FAKE REPORT\n"
+
+    pe_stub = types.ModuleType("pose_extraction")
+    for name in ("extract_poses", "poses_to_serialisable", "detect_single_frame",
+                "get_center", "body_height", "torso_angle", "shoulder_angle", "hip_angle"):
+        setattr(pe_stub, name, _boom)
+
+    pl_stub = types.ModuleType("pose_lift")
+    pl_stub.CHECKPOINT_DIR = Path(".")
+    pl_stub.lift_poses = _boom
+    pl_stub.save_poses = _boom
+
+    prf_stub = types.ModuleType("pose_refine")
+    prf_stub.load_pass1 = _boom
+    prf_stub.refine_poses = _boom
+
+    monkeypatch.setitem(sys.modules, "dance_metrics", dm_stub)
+    monkeypatch.setitem(sys.modules, "dance_review", dr_stub)
+    monkeypatch.setitem(sys.modules, "pose_extraction", pe_stub)
+    monkeypatch.setitem(sys.modules, "pose_lift", pl_stub)
+    monkeypatch.setitem(sys.modules, "pose_refine", prf_stub)
+    monkeypatch.delenv("REFFRAME_BASELINES", raising=False)
+
+    try:
+        from refframe_engine import run   # first real import: resolves to the stubs above
+
+        # _prepare_poses does the real extract/refine/lift work; bypass it too
+        # so this test only exercises analyze()'s own orchestration + the new
+        # compare_pros/missing-manifest branch.
+        monkeypatch.setattr(run, "_prepare_poses", lambda *a, **k: {"video_path": None})
+
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"fake")
+        out_dir = tmp_path / "out"
+
+        with stdio.capture():
+            run.analyze(str(video), str(out_dir), str(tmp_path),
+                       me_id=1, role="lead", compare_pros=True,
+                       pro_refs=str(tmp_path / "does_not_exist.json"))
+    finally:
+        # Don't leave the real (stub-backed) run module cached for later tests.
+        sys.modules.pop("refframe_engine.run", None)
+        if hasattr(refframe_engine, "run"):
+            delattr(refframe_engine, "run")
+
+    objs = _parsed(ndjson_out)
+    assert not any(o["event"] == "error" for o in objs)
+    logs = [o["msg"] for o in objs if o["event"] == "log"]
+    assert any("No pro baselines configured" in m for m in logs)
+    results = [o for o in objs if o["event"] == "result"]
+    assert len(results) == 1
+    assert results[0]["kind"] == "analysis"
+    assert results[0]["gap_path"] is None
+
+
+# ── export-baseline: NDJSON result shape ──────────────────────────────────────
+
+def test_export_baseline_ndjson_result_shape(ndjson_out, monkeypatch, tmp_path):
+    """Cheap smoke test: baselines.py itself has no heavy top-level imports
+    (json/os/pathlib only — `from . import run` / `import dance_metrics` are
+    lazy, inside export_baseline's body), so it's safe to import for real and
+    only stub its export_baseline function (avoiding the real compute path)
+    plus pose_lift (cli._patch_checkpoint_dir imports it directly). Calls
+    _cmd_export_baseline directly with a hand-built Namespace rather than via
+    cli.main()/argv, since the export-baseline subparser has no --data-dir
+    flag and would otherwise resolve+create directories under the dev default
+    data dir instead of tmp_path."""
+    pl_stub = types.ModuleType("pose_lift")
+    pl_stub.CHECKPOINT_DIR = Path(".")
+    monkeypatch.setitem(sys.modules, "pose_lift", pl_stub)
+
+    from refframe_engine import baselines, cli
+
+    out_path = tmp_path / "pro.metrics.json"
+
+    def fake_export_baseline(video, poses_path, *, label, couple, lead_id, out):
+        return {"out": str(out),
+                "entry": {"label": label, "couple": couple,
+                         "lead_id": int(lead_id), "metrics": Path(out).name}}
+
+    monkeypatch.setattr(baselines, "export_baseline", fake_export_baseline)
+
+    args = argparse.Namespace(video="clip.mp4", poses="poses.json",
+                              label="Semion & Maria", couple="semion_maria",
+                              lead_id=1, out=str(out_path), data_dir=str(tmp_path))
+    rc = cli._cmd_export_baseline(args)
+
+    assert rc == 0
+    objs = _parsed(ndjson_out)
+    results = [o for o in objs if o["event"] == "result"]
+    assert len(results) == 1
+    r = results[0]
+    assert r["kind"] == "export_baseline"
+    assert {"out", "entry"} <= set(r)
+    assert set(r["entry"]) == {"label", "couple", "lead_id", "metrics"}
 
 
 # ── doctor end-to-end (no heavy deps required: imports are try/except'd) ─────

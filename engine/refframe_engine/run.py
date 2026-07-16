@@ -631,24 +631,30 @@ def analyze(input_str, out_dir, data_dir, *, me="left", me_id=None, role="lead",
     if compare_pros:
         events.progress("gap", 0, 1)
         from . import baselines
-        manifest = baselines.load_manifest(pro_refs)
-        pro_entries = []
-        for entry in manifest["entries"]:
-            pm = _load_pro_metrics(entry, manifest["dir"])
-            if pm:
-                pro_entries.append((entry.get("label", entry.get("couple", "pro")),
-                                    pm, int(entry.get("lead_id", 1)),
-                                    entry.get("couple", entry.get("label", "pro"))))
-        if pro_entries:
-            gap = _gap_report(metrics, pro_entries, you_id=you_id,
-                              include_partner=partner, spotlight=spotlight,
-                              my_role=role)
-            print(gap)
-            gap_path = out_dir / f"{stem}_gap_analysis.txt"
-            gap_path.write_text(gap, encoding="utf-8")
-            print(f"  Gap analysis saved → {gap_path}")
+        try:
+            manifest = baselines.load_manifest(pro_refs)
+        except FileNotFoundError:
+            manifest = None
+        if manifest is None:
+            events.log("(No pro baselines configured — skipping comparison)")
         else:
-            print("  (No pro reference metrics found — skipping comparison)")
+            pro_entries = []
+            for entry in manifest["entries"]:
+                pm = _load_pro_metrics(entry, manifest["dir"])
+                if pm:
+                    pro_entries.append((entry.get("label", entry.get("couple", "pro")),
+                                        pm, int(entry.get("lead_id", 1)),
+                                        entry.get("couple", entry.get("label", "pro"))))
+            if pro_entries:
+                gap = _gap_report(metrics, pro_entries, you_id=you_id,
+                                  include_partner=partner, spotlight=spotlight,
+                                  my_role=role)
+                print(gap)
+                gap_path = out_dir / f"{stem}_gap_analysis.txt"
+                gap_path.write_text(gap, encoding="utf-8")
+                print(f"  Gap analysis saved → {gap_path}")
+            else:
+                print("  (No pro reference metrics found — skipping comparison)")
         events.progress("gap", 1, 1)
 
     tq = metrics.get("tracking_quality", {})
