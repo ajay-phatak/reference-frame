@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { RunRecord } from '../../../preload/index.d'
 
 interface Props {
   onOpen: (runId: string) => void
+  active: boolean
 }
 
 function fmtDate(iso: string): string {
@@ -38,14 +39,18 @@ function sourceLabel(
   return m ? `YouTube ${m[1]}` : input.length > 40 ? `${input.slice(0, 40)}…` : input
 }
 
-function Library({ onOpen }: Props): React.JSX.Element {
+function Library({ onOpen, active }: Props): React.JSX.Element {
   const [runs, setRuns] = useState<RunRecord[] | null>(null)
 
-  const refresh = (): void => {
+  const refresh = useCallback((): void => {
     window.api.libraryList().then(setRuns)
-  }
+  }, [])
 
-  useEffect(refresh, [])
+  // Runs can finish while the user is elsewhere (keep-mounted views) —
+  // refetch on mount and every time this tab becomes visible again.
+  useEffect(() => {
+    if (active) refresh()
+  }, [active, refresh])
 
   const remove = async (e: React.MouseEvent, runId: string): Promise<void> => {
     e.stopPropagation()

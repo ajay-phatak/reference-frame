@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AppConfig, EngineEvent, SeedDetection } from '../../../preload/index.d'
 import {
   looksLikeYoutubeUrl,
@@ -11,9 +11,11 @@ import { ProgressBlock, SeedPicker, VideoInput } from './shared'
 interface Props {
   config: AppConfig
   onAnalyzed: (runId: string) => void
+  active: boolean
+  onBusyChange?: (busy: boolean) => void
 }
 
-function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
+function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX.Element {
   const [inputMode, setInputMode] = useState<'file' | 'url'>('file')
   const [filePath, setFilePath] = useState('')
   const [url, setUrl] = useState('')
@@ -31,17 +33,29 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
 
   // Gap comparison needs at least one user-added pro (Pros tab) — with none
   // configured, force the toggle off and explain why instead of letting the
-  // user flip on a control that silently does nothing.
+  // user flip on a control that silently does nothing. Refetch whenever this
+  // tab becomes active (not just on mount) — with keep-mounted views, adding
+  // a pro in the Pros tab should immediately un-gate the toggle on return.
   const [hasPros, setHasPros] = useState<boolean | null>(null)
   useEffect(() => {
+    if (!active) return
     window.api.prosList().then((list) => setHasPros(list.length > 0))
-  }, [])
+  }, [active])
 
   const [running, setRunning] = useState(false)
   const [stageProgress, setStageProgress] = useState<Record<string, StageState>>({})
   const [logs, setLogs] = useState<string[]>([])
   const [showLog, setShowLog] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // With keep-mounted views, a run finishing while this tab is hidden must
+  // NOT yank the user to the Report — stash the runId and surface a banner
+  // instead, shown once they come back here.
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
+  const [finishedRunId, setFinishedRunId] = useState<string | null>(null)
 
   // Crowd-mode seed picker: two-step flow (seed-preview -> analyze) so the
   // user can pick themselves out of a crowd shot before the real run starts.
@@ -61,6 +75,12 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
   const [seedStageProgress, setSeedStageProgress] = useState<Record<string, StageState>>({})
   const [seedLogs, setSeedLogs] = useState<string[]>([])
   const [seedShowLog, setSeedShowLog] = useState(false)
+
+  // Nav dot: this view is "busy" while an analysis or its seed-preview is in
+  // flight, so switching away still shows something is running.
+  useEffect(() => {
+    onBusyChange?.(running || seedLoading)
+  }, [running, seedLoading, onBusyChange])
 
   const pickFile = async (): Promise<void> => {
     const path = await window.api.pickVideoFile()
@@ -153,6 +173,7 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
     setErrorMsg(null)
     setStageProgress({})
     setLogs([])
+    setFinishedRunId(null)
 
     const unsubscribe = window.api.onEngineEvent((e: EngineEvent) => {
       if (e.event === 'progress' && typeof e.stage === 'string') {
@@ -186,7 +207,14 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
         ...(crowdMode ? { runId: seedRunId, seedMeIdx, seedPartnerIdx } : {})
       })
       if (res.ok && res.runId) {
-        onAnalyzed(res.runId)
+        // If the tab is hidden, jumping to the Report would yank the user
+        // out of whatever they're doing — stash it and show a banner here
+        // instead, surfaced next time they come back to Analyze.
+        if (activeRef.current) {
+          onAnalyzed(res.runId)
+        } else {
+          setFinishedRunId(res.runId)
+        }
       } else {
         setErrorMsg(res.reason ?? 'Analysis failed')
       }
@@ -451,6 +479,22 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
           {running && <button onClick={cancel}>Cancel</button>}
         </div>
       </div>
+
+      {finishedRunId && (
+        <div className="banner-info">
+          Analysis complete —{' '}
+          <button
+            className="btn-sm"
+            onClick={() => {
+              const id = finishedRunId
+              setFinishedRunId(null)
+              onAnalyzed(id)
+            }}
+          >
+            View report
+          </button>
+        </div>
+      )}
 
       {errorMsg && (
         <div className="callout" style={{ borderColor: 'var(--loss-border)' }}>

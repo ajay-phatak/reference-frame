@@ -93,6 +93,30 @@
   );
 }
 
+/* Nav "job running" indicator — a run/add-pro job still going in a tab the
+   user has clicked away from. */
+.busy-dot {
+  display: inline-block;
+  font-size: 8px;
+  line-height: 1;
+  color: var(--progress);
+  animation: busy-dot-pulse 1.4s ease-in-out infinite;
+}
+
+.nav button.active .busy-dot {
+  color: var(--on-accent);
+}
+
+@keyframes busy-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 /* --- buttons --- */
 
 .btn-primary {

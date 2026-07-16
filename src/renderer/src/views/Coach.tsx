@@ -84,6 +84,23 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // With keep-mounted views, "Ask the coach" from a Report can hand a new
+  // initialRunId to an already-mounted Coach — react to that change (but not
+  // to the initial mount, which the effect above already handles) by
+  // refetching the run list (the hand-off run may have completed after this
+  // view's mount-time fetch) and switching to it.
+  const prevInitialRunId = useRef(initialRunId)
+  useEffect(() => {
+    if (initialRunId && initialRunId !== prevInitialRunId.current) {
+      window.api.libraryList().then((list) => {
+        const done = list.filter((r) => r.status === 'done' && r.resultPaths.reportPath)
+        setRuns(done)
+        setRunId(initialRunId)
+      })
+    }
+    prevInitialRunId.current = initialRunId
+  }, [initialRunId])
+
   useEffect(() => window.api.onCoachDelta((text) => setStreaming((s) => s + text)), [])
 
   useEffect(() => {

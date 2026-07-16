@@ -17,6 +17,8 @@ function App(): React.JSX.Element {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
   const [coachRunId, setCoachRunId] = useState<string | null>(null)
+  const [analyzeBusy, setAnalyzeBusy] = useState(false)
+  const [prosBusy, setProsBusy] = useState(false)
 
   useEffect(() => {
     window.api.checkUpdate().then((u) => {
@@ -49,6 +51,10 @@ function App(): React.JSX.Element {
     return <Onboarding onDone={setConfig} />
   }
 
+  // Busy dots let the nav show that a long engine job is still running in a
+  // tab the user has clicked away from.
+  const busyFor: Partial<Record<View, boolean>> = { Analyze: analyzeBusy, Pros: prosBusy }
+
   return (
     <div className="app">
       <nav className="nav">
@@ -56,6 +62,11 @@ function App(): React.JSX.Element {
         {VIEWS.map((v) => (
           <button key={v} onClick={() => goTo(v)} className={view === v ? 'active' : undefined}>
             {v}
+            {busyFor[v] && (
+              <span className="busy-dot" title="job running">
+                ●
+              </span>
+            )}
           </button>
         ))}
       </nav>
@@ -77,16 +88,34 @@ function App(): React.JSX.Element {
           <p className="muted">Loading…</p>
         ) : (
           <>
-            {view === 'Analyze' && <Analyze config={config} onAnalyzed={openRun} />}
-            {view === 'Library' &&
-              (runId ? (
+            {/* All five views stay mounted (display: none when inactive) so a
+                long-running engine job's local state and event subscription
+                survive the user switching tabs. Report keeps its previous
+                remount-on-click behaviour, nested inside the Library slot. */}
+            <div hidden={view !== 'Analyze'}>
+              <Analyze
+                config={config}
+                onAnalyzed={openRun}
+                active={view === 'Analyze'}
+                onBusyChange={setAnalyzeBusy}
+              />
+            </div>
+            <div hidden={view !== 'Library'}>
+              {runId ? (
                 <Report runId={runId} onBack={() => setRunId(null)} onAskCoach={askCoach} />
               ) : (
-                <Library onOpen={openRun} />
-              ))}
-            {view === 'Pros' && <Pros config={config} />}
-            {view === 'Coach' && <Coach initialRunId={coachRunId ?? undefined} />}
-            {view === 'Settings' && <Settings config={config} onSaved={setConfig} />}
+                <Library onOpen={openRun} active={view === 'Library'} />
+              )}
+            </div>
+            <div hidden={view !== 'Pros'}>
+              <Pros config={config} active={view === 'Pros'} onBusyChange={setProsBusy} />
+            </div>
+            <div hidden={view !== 'Coach'}>
+              <Coach initialRunId={coachRunId ?? undefined} />
+            </div>
+            <div hidden={view !== 'Settings'}>
+              <Settings config={config} onSaved={setConfig} />
+            </div>
           </>
         )}
       </main>

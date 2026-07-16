@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { AppConfig, EngineEvent, ProEntry, SeedDetection } from '../../../preload/index.d'
 import {
   looksLikeYoutubeUrl,
@@ -10,6 +10,8 @@ import { ProgressBlock, SeedPicker, VideoInput } from './shared'
 
 interface Props {
   config: AppConfig
+  active: boolean
+  onBusyChange?: (busy: boolean) => void
 }
 
 function fmtDate(iso: string): string {
@@ -24,14 +26,19 @@ function fmtDate(iso: string): string {
   }
 }
 
-function Pros({ config }: Props): React.JSX.Element {
+function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
   const [pros, setPros] = useState<ProEntry[] | null>(null)
   const [adding, setAdding] = useState(false)
 
-  const refresh = (): void => {
+  const refresh = useCallback((): void => {
     window.api.prosList().then(setPros)
-  }
-  useEffect(refresh, [])
+  }, [])
+
+  // Refetch on mount and whenever this tab becomes visible again — an
+  // add-pro job can finish while the user is on another tab.
+  useEffect(() => {
+    if (active) refresh()
+  }, [active, refresh])
 
   const removePro = async (e: React.MouseEvent, id: string): Promise<void> => {
     e.stopPropagation()
@@ -70,6 +77,12 @@ function Pros({ config }: Props): React.JSX.Element {
   const [logs, setLogs] = useState<string[]>([])
   const [showLog, setShowLog] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Nav dot: this view is "busy" while its seed-preview or add job is in
+  // flight, so switching away still shows something is running.
+  useEffect(() => {
+    onBusyChange?.(seedLoading || submitting)
+  }, [seedLoading, submitting, onBusyChange])
 
   const pickFile = async (): Promise<void> => {
     const path = await window.api.pickVideoFile()
