@@ -44,9 +44,15 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
   - When engine analysis behavior changes, verify with a golden diff: run
     the source pipeline and the vendored engine on the same video with
     identical flags; the report txt must stay byte-identical.
-- Pro baselines are precomputed METRICS JSON (`resources/pro_baselines/`,
-  committed, KB-scale) — never pro videos or pose files. Both sides of a
-  gap comparison must go through the same metrics code path.
+- Pro baselines are precomputed METRICS JSON (KB-scale) — never pro videos
+  or pose files. They are USER-SUPPLIED (0.2.0+): the app manages
+  `userData/pro_baselines/` (manifest + metrics files, `src/main/pros.ts`)
+  and passes `--pro-refs` only when ≥1 pro exists; nothing is bundled.
+  Both sides of a gap comparison must go through the same metrics code
+  path. A manifest entry's `lead_id` is the RAW track id in the saved
+  poses cache (written pre-orientation) — the add-pro flow gets it from
+  the analyze result's `you_id_raw` with the lead seeded as "me",
+  role=lead.
 - Renderer never sees secrets or spawns processes; all engine/IPC work is in
   `src/main/`, typed in `src/preload/index.d.ts`.
 - Anthropic API key lives ONLY as safeStorage (DPAPI) ciphertext in
@@ -88,12 +94,12 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
   point into `--data-dir` (ultralytics/numba otherwise write to protected
   or roaming locations).
 - Never commit personal data: videos, pose caches, run outputs. The
-  .gitignore blocks the file types; `resources/pro_baselines/` (metrics
-  JSON only) is the deliberate exception and IS committed.
+  .gitignore blocks the file types. (Pro baselines are no longer in the
+  repo at all — they live in each user's userData.)
 
 ## Roadmap state
 
-Phases 0-4 done: engine, shell/report views, seed flow + YouTube +
-onboarding, and the coach (both backends) are all built and live-verified.
-Remaining for v0.1.0 (phase 5): frozen-engine rebuild, in-app UI pass +
-live YouTube E2E, icon, README, tag, clean-machine install test.
+v0.1.0 tagged 2026-07-16 (full app: engine, views, seed flow, YouTube,
+onboarding, coach). v0.2.0 in progress: user-managed Pros tab built
+(bundled pro_baselines removed); remaining — live E2E of the add-pro
+flow against the real engine, release-checklist pass, tag.
