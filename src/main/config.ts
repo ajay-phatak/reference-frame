@@ -4,8 +4,10 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 
 export interface AppConfig {
   role: 'lead' | 'follow'
-  defaultMe: 'left' | 'right'
-  partnerName: string | null
+  // The user's own name — used to pre-fill Settings/Onboarding and to
+  // address them in coach prompts. Side and partner name are per-run
+  // (Analyze), not universal defaults, since they vary video to video.
+  userName: string
   poseModel: 'n' | 's' | 'm' | 'l' | 'x'
   notesFolder: string | null
   // 'api' = Anthropic API key (credits); 'claude-cli' = spawn the user's
@@ -17,8 +19,7 @@ export interface AppConfig {
 
 const DEFAULTS: AppConfig = {
   role: 'lead',
-  defaultMe: 'left',
-  partnerName: null,
+  userName: '',
   poseModel: 'm',
   notesFolder: null,
   coachBackend: 'api',

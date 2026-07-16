@@ -122,7 +122,6 @@ app.whenReady().then(() => {
   ipcMain.handle('engine:analyze', async (event, opts: AnalyzeArgs) => {
     if (activeJob) return { ok: false, reason: 'busy' }
 
-    const config = loadConfig()
     const runOptions: RunOptions = {
       me: opts.me,
       meId: opts.meId ?? null,
@@ -132,7 +131,7 @@ app.whenReady().then(() => {
       poseModel: opts.poseModel,
       comparePros: opts.comparePros
     }
-    const partnerName = opts.partnerName ?? config.partnerName
+    const partnerName = opts.partnerName ?? null
 
     let runId: string
     let dir: string
@@ -262,7 +261,6 @@ app.whenReady().then(() => {
       if (!existsSync(dir)) return { ok: false, reason: 'run not found' }
       runId = opts.runId
     } else {
-      const config = loadConfig()
       const runOptions: RunOptions = {
         me: opts.me,
         meId: null,
@@ -272,7 +270,7 @@ app.whenReady().then(() => {
         poseModel: opts.poseModel,
         comparePros: opts.comparePros
       }
-      const partnerName = opts.partnerName ?? config.partnerName
+      const partnerName = opts.partnerName ?? null
       const created = library.createRun(dataDir(), opts.input, runOptions, partnerName)
       runId = created.runId
       dir = created.dir
@@ -392,6 +390,7 @@ app.whenReady().then(() => {
       gapTxt: gapText,
       context: {
         role: run.options.role,
+        userName: cfg.userName || null,
         partnerName: run.partnerName,
         spotlight: run.options.spotlight,
         coverage: run.coverage

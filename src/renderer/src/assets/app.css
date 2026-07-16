@@ -126,6 +126,19 @@
   padding: 2px var(--space-2);
 }
 
+/* --- selected-state toggle buttons (Analyze input-mode) --- */
+
+.toggle-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
+.toggle-btn.active:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
 /* --- banners & callouts --- */
 
 .banner-info {

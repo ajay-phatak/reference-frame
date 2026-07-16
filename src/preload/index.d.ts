@@ -16,8 +16,10 @@ export interface EngineEvent {
 
 export interface AppConfig {
   role: 'lead' | 'follow'
-  defaultMe: 'left' | 'right'
-  partnerName: string | null
+  // The user's own name — pre-fills Settings/Onboarding and addresses them
+  // in coach prompts. Side and partner name are per-run (Analyze), not
+  // universal defaults, since they vary video to video.
+  userName: string
   poseModel: 'n' | 's' | 'm' | 'l' | 'x'
   notesFolder: string | null
   coachBackend: 'api' | 'claude-cli'

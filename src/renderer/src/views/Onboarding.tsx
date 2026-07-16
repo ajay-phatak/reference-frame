@@ -29,8 +29,7 @@ function Onboarding({ onDone }: Props): React.JSX.Element {
   const [step, setStep] = useState(1)
 
   const [role, setRole] = useState<AppConfig['role']>('lead')
-  const [defaultMe, setDefaultMe] = useState<AppConfig['defaultMe']>('left')
-  const [partnerName, setPartnerName] = useState('')
+  const [userName, setUserName] = useState('')
 
   const [running, setRunning] = useState(false)
   const [active, setActive] = useState<ComponentKey>('yolo')
@@ -95,8 +94,7 @@ function Onboarding({ onDone }: Props): React.JSX.Element {
 
   const nextConfigPatch = (): Partial<AppConfig> => ({
     role,
-    defaultMe,
-    partnerName: partnerName.trim() || null,
+    userName: userName.trim(),
     onboarded: true
   })
 
@@ -128,34 +126,24 @@ function Onboarding({ onDone }: Props): React.JSX.Element {
           <div className="card">
             <div className="row" style={{ flexWrap: 'wrap', gap: 16 }}>
               <label className="check-label">
-                Your role
+                Your name
+                <br />
+                <input value={userName} onChange={(e) => setUserName(e.target.value)} />
+              </label>
+              <label className="check-label">
+                Your role (default)
                 <br />
                 <select value={role} onChange={(e) => setRole(e.target.value as AppConfig['role'])}>
                   <option value="lead">Lead</option>
                   <option value="follow">Follow</option>
                 </select>
               </label>
-              <label className="check-label">
-                Usual starting side
-                <br />
-                <select
-                  value={defaultMe}
-                  onChange={(e) => setDefaultMe(e.target.value as AppConfig['defaultMe'])}
-                >
-                  <option value="left">Left</option>
-                  <option value="right">Right</option>
-                </select>
-              </label>
-              <label className="check-label">
-                Partner name
-                <br />
-                <input
-                  value={partnerName}
-                  placeholder="optional"
-                  onChange={(e) => setPartnerName(e.target.value)}
-                />
-              </label>
             </div>
+            <p className="muted tiny" style={{ marginTop: 8 }}>
+              Just a starting point for Analyze — change it per video any time (some people
+              compete both roles). Starting side and partner name also live there, since they
+              differ clip to clip.
+            </p>
           </div>
 
           <div className="row" style={{ marginTop: 16 }}>

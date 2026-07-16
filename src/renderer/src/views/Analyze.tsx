@@ -63,9 +63,12 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
   const [filePath, setFilePath] = useState('')
   const [url, setUrl] = useState('')
 
-  const [me, setMe] = useState<'left' | 'right'>(config.defaultMe)
+  // Side has no config-driven default — it varies clip to clip, so 'left' is
+  // just a sane starting point. Role defaults from the Settings/Onboarding
+  // default; partner name is always per-run (J&J partners differ per clip).
+  const [me, setMe] = useState<'left' | 'right'>('left')
   const [role, setRole] = useState<'lead' | 'follow'>(config.role)
-  const [partnerName, setPartnerName] = useState(config.partnerName ?? '')
+  const [partnerName, setPartnerName] = useState('')
   const [partnerToggle, setPartnerToggle] = useState(false)
   const [spotlight, setSpotlight] = useState(false)
   const [comparePros, setComparePros] = useState(true)
@@ -268,14 +271,14 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
       <div className="card">
         <div className="row" style={{ marginBottom: 8 }}>
           <button
-            className={inputMode === 'file' ? 'active' : undefined}
+            className={`toggle-btn${inputMode === 'file' ? ' active' : ''}`}
             disabled={running}
             onClick={() => setInputMode('file')}
           >
             Video file
           </button>
           <button
-            className={inputMode === 'url' ? 'active' : undefined}
+            className={`toggle-btn${inputMode === 'url' ? ' active' : ''}`}
             disabled={running}
             onClick={() => setInputMode('url')}
           >
@@ -354,7 +357,7 @@ function Analyze({ config, onAnalyzed }: Props): React.JSX.Element {
             </select>
           </label>
           <label className="check-label">
-            Partner name
+            Partner name (optional)
             <br />
             <input
               value={partnerName}

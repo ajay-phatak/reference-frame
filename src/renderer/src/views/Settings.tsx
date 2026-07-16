@@ -8,8 +8,7 @@ interface Props {
 
 function Settings({ config, onSaved }: Props): React.JSX.Element {
   const [role, setRole] = useState(config.role)
-  const [defaultMe, setDefaultMe] = useState(config.defaultMe)
-  const [partnerName, setPartnerName] = useState(config.partnerName ?? '')
+  const [userName, setUserName] = useState(config.userName)
   const [poseModel, setPoseModel] = useState(config.poseModel)
   const [notesFolder, setNotesFolder] = useState(config.notesFolder ?? '')
   const [backend, setBackend] = useState(config.coachBackend)
@@ -54,8 +53,7 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
   const save = async (): Promise<void> => {
     const next = await window.api.setConfig({
       role,
-      defaultMe,
-      partnerName: partnerName.trim() || null,
+      userName: userName.trim(),
       poseModel,
       notesFolder: notesFolder.trim() || null,
       coachBackend: backend,
@@ -77,18 +75,7 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
 
       <div className="row" style={{ flexWrap: 'wrap', gap: 16 }}>
         <label className="check-label">
-          Your side
-          <br />
-          <select
-            value={defaultMe}
-            onChange={(e) => setDefaultMe(e.target.value as AppConfig['defaultMe'])}
-          >
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
-        </label>
-        <label className="check-label">
-          Your role
+          Your role (default)
           <br />
           <select value={role} onChange={(e) => setRole(e.target.value as AppConfig['role'])}>
             <option value="lead">Lead</option>
@@ -110,14 +97,12 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
           </select>
         </label>
       </div>
+      <p className="muted tiny" style={{ marginTop: 4 }}>
+        Starting side and partner name aren&apos;t set here — they&apos;re per-video on Analyze.
+      </p>
 
-      <h4 style={{ marginTop: 16 }}>Partner name</h4>
-      <input
-        style={{ width: '100%' }}
-        value={partnerName}
-        placeholder="optional"
-        onChange={(e) => setPartnerName(e.target.value)}
-      />
+      <h4 style={{ marginTop: 16 }}>Your name</h4>
+      <input style={{ width: '100%' }} value={userName} onChange={(e) => setUserName(e.target.value)} />
 
       <h4 style={{ marginTop: 16 }}>Notes folder</h4>
       <p className="muted small" style={{ marginTop: -8 }}>

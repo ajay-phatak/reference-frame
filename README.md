@@ -14,7 +14,7 @@ Windows-only for now.
 
 ## First run
 
-On first launch, onboarding walks you through a couple of quick preferences (your role, your usual starting side, partner name) and then downloads the analysis model weights — YOLO (person detector), RTMPose (pose refiner), and VideoPose3D (3D lifter), about 260 MB total. This is required and one-time; you can defer it and it'll download automatically the first time you run an analysis instead.
+On first launch, onboarding asks for your name and your default role (lead/follow — just a starting point, changeable per video) and then downloads the analysis model weights — YOLO (person detector), RTMPose (pose refiner), and VideoPose3D (3D lifter), about 260 MB total. This is required and one-time; you can defer it and it'll download automatically the first time you run an analysis instead. Starting side and partner name are set per video on the Analyze screen, since they vary clip to clip.
 
 ## Features
 

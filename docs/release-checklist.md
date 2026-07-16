@@ -20,8 +20,9 @@ leave unattended. Check items off as you go.
 If the app has run before: delete `%APPDATA%\reference-frame` first so
 onboarding triggers. (This wipes your library and coach key — expected.)
 
-- [ ] Onboarding appears; role/side/partner questions save correctly
-      (verify later in Settings).
+- [ ] Onboarding appears; role (default) and your name save correctly
+      (verify later in Settings). Side and partner name are no longer
+      asked here — they're per-video on Analyze.
 - [ ] Weight download shows per-model progress and completes (~260 MB).
       If your network hiccups, progress should resume, not restart from 0%.
 - [ ] "Set up later" path: if testing it, an analyze afterwards must
@@ -31,8 +32,10 @@ onboarding triggers. (This wipes your library and coach key — expected.)
 
 Use a practice video with just you and your partner in frame.
 
-- [ ] File picker opens, options (side, role, partner name, spotlight,
-      pose model) reflect your onboarding defaults.
+- [ ] File picker opens; the "Video file" / "YouTube URL" toggle clearly
+      shows which is selected. Role reflects your onboarding/Settings
+      default; side defaults to left (no config default); partner name is
+      blank (per-video, type it in each time).
 - [ ] Per-stage progress bars advance through extract → refine → lift →
       metrics → report (first run also compiles numba — a long quiet
       stretch on the first analyze ever is expected).

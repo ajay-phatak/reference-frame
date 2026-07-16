@@ -45,6 +45,9 @@ export interface CoachResult {
 // it goes over the API or the CLI's stdin.
 export interface AdviseContext {
   role: 'lead' | 'follow'
+  // The user's own name (config.userName), so the coach can address them —
+  // null/empty when not set in Settings/Onboarding.
+  userName: string | null
   partnerName: string | null
   spotlight: boolean
   // tracking coverage per role (0–100), from the run's run.json — low coverage
@@ -210,6 +213,7 @@ function coverageLine(coverage: Record<string, number | null> | null): string {
 export function buildAdvisePrompt(inputs: AdviseInputs): string {
   const { reportTxt, gapTxt, context, practiceNotes, previousFocuses } = inputs
   const contextLines = [
+    `- Name: ${context.userName ?? 'unknown'}`,
     `- Role: ${context.role}`,
     `- Partner: ${context.partnerName ?? 'unnamed'}`,
     `- Clip type: ${context.spotlight ? 'spotlight/showcase' : 'contained (prelim/practice)'}`,
