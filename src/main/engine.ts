@@ -18,14 +18,18 @@ interface EngineCommand {
 // packaged builds use the PyInstaller exe shipped in resources/engine.
 function resolveEngine(): EngineCommand {
   if (app.isPackaged) {
+    const binName = process.platform === 'win32' ? 'refframe-engine.exe' : 'refframe-engine'
     return {
-      command: join(process.resourcesPath, 'engine', 'refframe-engine.exe'),
+      command: join(process.resourcesPath, 'engine', binName),
       baseArgs: [],
       cwd: join(process.resourcesPath, 'engine')
     }
   }
   const repoRoot = join(__dirname, '..', '..')
-  const venvPython = join(repoRoot, 'engine', '.venv', 'Scripts', 'python.exe')
+  const venvPython =
+    process.platform === 'win32'
+      ? join(repoRoot, 'engine', '.venv', 'Scripts', 'python.exe')
+      : join(repoRoot, 'engine', '.venv', 'bin', 'python')
   return {
     command: existsSync(venvPython) ? venvPython : 'python',
     baseArgs: ['-m', 'refframe_engine'],

@@ -103,3 +103,22 @@ Use social-dance footage with other couples in frame.
 Only tag `v*` after every box above is checked. The post-tag steps
 (publish the draft release with `latest.yml`, clean-machine install test,
 SmartScreen "Run anyway" walkthrough) live in CLAUDE.md's release notes.
+
+## 10. macOS pass (Apple Silicon)
+
+Supplements the checklist above — doesn't duplicate it. Run on the
+maintainer's actual Mac against the packaged dmg (CI's doctor smoke already
+covers the frozen-import risk; this is the human pass).
+
+- [ ] Mount the dmg, drag Reference Frame to Applications.
+- [ ] Right-click → Open past Gatekeeper on first launch (plain double-click
+      should refuse to open the unsigned app — confirm that too).
+- [ ] Fresh state: delete `~/Library/Application Support/reference-frame` to
+      re-trigger onboarding.
+- [ ] Weights download completes, then one full analyze run completes.
+- [ ] One coach report run completes (either backend).
+
+Mac reports are not expected to be byte-identical to Windows reports of the
+same video (arm64 float/BLAS parity caveat, see
+`docs/plan-0.3.1-mac.md`) — this pass validates the app works, not bit-exact
+output.

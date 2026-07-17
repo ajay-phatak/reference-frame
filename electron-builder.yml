@@ -30,6 +30,18 @@ nsis:
   createDesktopShortcut: always
   oneClick: false
   allowToChangeInstallationDirectory: true
+# arm64 only (v0.3.1 decision: Intel Macs are EOL for this workload). No
+# `identity` key here on purpose: leaving it unset lets electron-builder fall
+# back to ad-hoc signing, which arm64 REQUIRES to launch at all. Setting
+# `identity: null` would skip signing entirely and the kernel kills unsigned
+# arm64 binaries outright — that's worse than the ad-hoc-signed, Gatekeeper-
+# warns-once outcome we get by leaving this alone.
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  artifactName: reference-frame-${version}-${arch}.${ext}
 npmRebuild: false
 publish:
   provider: github

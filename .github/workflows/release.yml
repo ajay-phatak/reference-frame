@@ -44,3 +44,40 @@ jobs:
         with:
           name: reference-frame-setup
           path: dist/*-setup.exe
+
+  build-mac:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build engine (PyInstaller)
+        run: bash scripts/build-engine.sh
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build and package
+        run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-frame-dmg
+          path: dist/*.dmg
