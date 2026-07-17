@@ -336,7 +336,7 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
               disabled={running}
               onChange={(e) => setSpotlight(e.target.checked)}
             />{' '}
-            Spotlight (no floor-travel penalty)
+            Spotlight
           </label>
           <label className="check-label">
             <input

@@ -312,7 +312,7 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
               <input
                 value={label}
                 disabled={submitting}
-                placeholder="e.g. Semion & Maria — WOTP 2024"
+                placeholder="e.g. Jordan & Tatiana — WOTP 2024"
                 onChange={(e) => setLabel(e.target.value)}
               />
             </label>
@@ -322,7 +322,7 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
               <input
                 value={couple}
                 disabled={submitting}
-                placeholder="e.g. Semion & Maria"
+                placeholder="e.g. Jordan & Tatiana"
                 onChange={(e) => setCouple(e.target.value)}
               />
             </label>
