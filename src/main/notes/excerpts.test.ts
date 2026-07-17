@@ -108,4 +108,38 @@ describe('buildExcerpts', () => {
       rmSync(empty, { recursive: true, force: true })
     }
   })
+
+  it('skips our own refframe:begin run blocks but still reads coach blocks', () => {
+    const withOwnBlocks = mkdtempSync(join(tmpdir(), 'rf-ownblocks-'))
+    try {
+      writeFileSync(
+        join(withOwnBlocks, 'Sessions.md'),
+        [
+          '# Sessions',
+          '',
+          '<!-- refframe:begin run 20260716-142530-my-video -->',
+          '## Run My Video',
+          '',
+          '| Metric | You | Pro avg |',
+          '| --- | --- | --- |',
+          '- Sit into the standing leg on your anchors — this must not leak.',
+          '<!-- refframe:end run 20260716-142530-my-video -->',
+          '',
+          '<!-- refframe:begin coach 20260716-142530-my-video -->',
+          "## Coach's read",
+          '',
+          '- Commit your weight fully before the next step (balance) — agreed focus.',
+          '<!-- refframe:end coach 20260716-142530-my-video -->'
+        ].join('\n')
+      )
+      const out = buildExcerpts({ notesFolder: withOwnBlocks, gapText: GAP_TEXT, reportText: null })
+      expect(out).not.toBeNull()
+      // The bullet inside our own run block never surfaces...
+      expect(out).not.toContain('this must not leak')
+      // ...but a bullet inside a coach block is still fair game.
+      expect(out).toContain('agreed focus')
+    } finally {
+      rmSync(withOwnBlocks, { recursive: true, force: true })
+    }
+  })
 })

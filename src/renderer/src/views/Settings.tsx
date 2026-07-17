@@ -11,6 +11,7 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
   const [userName, setUserName] = useState(config.userName)
   const [poseModel, setPoseModel] = useState(config.poseModel)
   const [notesFolder, setNotesFolder] = useState(config.notesFolder ?? '')
+  const [notesWriteEnabled, setNotesWriteEnabled] = useState(config.notesWriteEnabled)
   const [backend, setBackend] = useState(config.coachBackend)
   const [coachModel, setCoachModel] = useState(config.coachModel)
   const [saved, setSaved] = useState(false)
@@ -56,6 +57,9 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
       userName: userName.trim(),
       poseModel,
       notesFolder: notesFolder.trim() || null,
+      // Clearing the folder always turns writing off too — no orphaned
+      // write-enabled-but-nowhere-to-write state.
+      notesWriteEnabled: notesWriteEnabled && !!notesFolder.trim(),
       coachBackend: backend,
       coachModel
     })
@@ -107,8 +111,8 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
       <h4 style={{ marginTop: 16 }}>Notes folder</h4>
       <p className="muted small" style={{ marginTop: -8 }}>
         Point at a folder of markdown lesson notes and the coach will cite the bullets that relate
-        to your gaps — quoting your own instructors, never inventing one. Read-only; nothing is
-        written there.
+        to your gaps — quoting your own instructors, never inventing one. Writing session summaries
+        and coach notes back into the folder only happens if you turn it on below.
       </p>
       <div style={{ display: 'flex', gap: 8 }}>
         <input
@@ -126,6 +130,15 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
           </button>
         )}
       </div>
+      <label className="check-label" style={{ display: 'block', marginTop: 8 }}>
+        <input
+          type="checkbox"
+          checked={notesWriteEnabled}
+          disabled={!notesFolder.trim()}
+          onChange={(e) => setNotesWriteEnabled(e.target.checked)}
+        />{' '}
+        Also write session summaries and coach notes into this folder
+      </label>
 
       <h4 style={{ marginTop: 16 }}>AI coach</h4>
       <label className="check-label" style={{ marginBottom: 4, display: 'block' }}>

@@ -19,15 +19,30 @@ interface Gap {
   relative: number
 }
 
+// Exported row shape for blocks.ts's session-summary table — it wants the
+// actual you/pro numbers, not just the ranking this module uses internally.
+export interface GapRow {
+  label: string
+  you: number
+  pro: number
+  relative: number
+}
+
 // A gap-analysis row, e.g.
 //   "Art. standing-leg knee flex p90 (ceiling) — you  you=36.8  pro avg=105.7  ▼ -68.9"
-// Unfavorable rows carry ▼. Partnership rows use "you=…" with no "— you"/"—
-// partner" suffix. We rank by RELATIVE gap size since metrics have wildly
-// different scales, and skip "— partner" rows (that's the dancer's partner).
+// Unfavorable rows carry ▼ — the regex requires it, so favorable (▲) rows
+// never match and are implicitly excluded. Partnership rows use "you=…" with
+// no "— you"/"— partner" suffix. We rank by RELATIVE gap size since metrics
+// have wildly different scales, and skip "— partner" rows (that's the
+// dancer's partner, not the dancer).
 const ROW_RE = /^(.*?)\s{2,}(?:you|partner)=(-?[\d.]+)\s+pro avg=(-?[\d.]+)\s+▼/
 
-function parseGapRows(gapText: string): Gap[] {
-  const best = new Map<string, number>()
+// Exported for reuse by blocks.ts's renderRunBlock, which needs the same row
+// parsing plus the raw you/pro values for its markdown table. Keep this the
+// single source of truth for gap-row parsing — buildExcerpts below only ever
+// reads .label/.relative off the result, so its behavior is unchanged.
+export function parseGapRows(gapText: string): GapRow[] {
+  const best = new Map<string, GapRow>()
   for (const raw of gapText.split(/\r?\n/)) {
     const line = raw.trimEnd()
     const m = line.match(ROW_RE)
@@ -40,24 +55,26 @@ function parseGapRows(gapText: string): Gap[] {
     if (!isFinite(you) || !isFinite(pro)) continue
     const relative = Math.abs(you - pro) / (Math.abs(pro) + Math.abs(you) + 1e-9)
     const prev = best.get(label)
-    if (prev === undefined || relative > prev) best.set(label, relative)
+    if (prev === undefined || relative > prev.relative) best.set(label, { label, you, pro, relative })
   }
-  return [...best.entries()].map(([label, relative]) => ({ label, relative }))
+  return [...best.values()]
 }
 
 // Fallback when no --compare-pros gap table exists: the report's SUMMARY FLAGS
 // block. Each flagged line ([!]/[~]) names a metric we can route via hubmap.
-function parseSummaryFlags(reportText: string): Gap[] {
+// Exported (flagged lines only) so blocks.ts can render the same fallback as
+// plain bullets when a run has no gap table.
+export function parseSummaryFlags(reportText: string): string[] {
   const start = reportText.indexOf('SUMMARY FLAGS')
   if (start === -1) return []
   const tail = reportText.slice(start)
-  const gaps: Gap[] = []
+  const lines: string[] = []
   for (const raw of tail.split(/\r?\n/)) {
     const line = raw.trim()
     if (!/^\[[!~]\]/.test(line)) continue
-    gaps.push({ label: line, relative: 1 })
+    lines.push(line)
   }
-  return gaps
+  return lines
 }
 
 // Recursively collect *.md paths under root, breadth-capped.
@@ -110,6 +127,16 @@ function makeMatcher(terms: string[]): (line: string) => boolean {
 
 const isBullet = (line: string): boolean => /^\s*(?:[-*+]|\d+\.)\s+/.test(line)
 
+// Our own writer.ts stamps managed <!-- refframe:begin/end kind key --> spans
+// into the vault (see writer.ts). "run" blocks are our compact metrics/gap
+// summary — if the coach re-read those as the dancer's own notes it would
+// quote our output back at itself. "coach"/"focuses" blocks stay eligible:
+// prior advice and agreed focuses are exactly what a coach should build on.
+// Only "run" toggles the skip; other kinds are ignored entirely (fall through
+// to normal bullet matching).
+const RUN_BEGIN_RE = /^\s*<!--\s*refframe:begin\s+run\s+\S+\s*-->\s*$/
+const RUN_END_RE = /^\s*<!--\s*refframe:end\s+run\s+\S+\s*-->\s*$/
+
 /**
  * Build the <practice_notes> excerpt block for a run, or null when there's
  * nothing to show (no folder, no mapped gaps, or no matching bullets).
@@ -123,7 +150,14 @@ export function buildExcerpts(opts: {
   if (!notesFolder) return null
 
   // Rank the unfavorable gaps, take the top few, keep only mapped ones.
-  const gaps = (gapText ? parseGapRows(gapText) : parseSummaryFlags(reportText ?? ''))
+  // parseSummaryFlags now returns plain flag-line strings (blocks.ts reuses
+  // it as-is for its own fallback), so wrap them back into the local Gap
+  // shape here — every fallback line gets equal (1) rank, same as before.
+  const gaps: Gap[] = (
+    gapText
+      ? parseGapRows(gapText).map((r) => ({ label: r.label, relative: r.relative }))
+      : parseSummaryFlags(reportText ?? '').map((label) => ({ label, relative: 1 }))
+  )
     .sort((a, b) => b.relative - a.relative)
     .filter((g) => termsForGap(g.label).length > 0)
     .slice(0, MAX_GAPS)
@@ -152,7 +186,17 @@ export function buildExcerpts(opts: {
     const name = basename(file)
     const excerpts: string[] = []
     const seen = new Set<number>()
+    let inRunBlock = false
     for (let i = 0; i < lines.length; i++) {
+      if (RUN_BEGIN_RE.test(lines[i])) {
+        inRunBlock = true
+        continue
+      }
+      if (RUN_END_RE.test(lines[i])) {
+        inRunBlock = false
+        continue
+      }
+      if (inRunBlock) continue
       if (excerpts.length >= MAX_PER_FILE) break
       if (!isBullet(lines[i]) || !matches(lines[i])) continue
       if (seen.has(i)) continue

@@ -25,8 +25,38 @@ import {
   resetCliConversation,
   hasCliConversation
 } from './coach/cli'
-import { renderPreviousFocuses, saveFocusGroup } from './coach/focuses'
+import { renderPreviousFocuses, saveFocusGroup, readFocusGroups } from './coach/focuses'
 import { buildExcerpts } from './notes/excerpts'
+import { upsertBlock } from './notes/writer'
+import {
+  sessionRelPath,
+  sessionDate,
+  renderRunBlock,
+  renderCoachBlock,
+  renderFocusesBlock
+} from './notes/blocks'
+
+// Best-effort notes-folder write: gated on the opt-in toggle (a notes-write
+// failure must never fail the underlying operation, so it's logged, not
+// thrown).
+function writeNoteBlock(
+  cfg: AppConfig,
+  opts: {
+    relPath: string
+    kind: string
+    key: string
+    content: string
+    frontmatter?: Record<string, string>
+  }
+): void {
+  if (!cfg.notesWriteEnabled || !cfg.notesFolder) return
+  try {
+    const res = upsertBlock({ notesFolder: cfg.notesFolder, ...opts })
+    if (!res.ok) console.error('notes write failed:', res.reason)
+  } catch (err) {
+    console.error('notes write failed:', err)
+  }
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -196,6 +226,20 @@ app.whenReady().then(() => {
       })
       if (exitCode === 0 && resultEvent && resultEvent.kind === 'analysis') {
         const record = library.completeRun(dataDir(), runId, resultEvent as library.AnalysisResult)
+        if (record) {
+          const detail = library.get(dataDir(), runId)
+          writeNoteBlock(loadConfig(), {
+            relPath: sessionRelPath(runId, record.createdAt),
+            kind: 'run',
+            key: runId,
+            content: renderRunBlock({
+              run: record,
+              reportText: detail?.reportText ?? null,
+              gapText: detail?.gapText ?? null
+            }),
+            frontmatter: { generator: 'refframe', date: sessionDate(runId, record.createdAt) }
+          })
+        }
         return {
           ok: true,
           runId,
@@ -536,8 +580,10 @@ app.whenReady().then(() => {
   // notes-folder excerpts, and the dated-focus loop.
   // ------------------------------------------------------------------------
 
-  // Notes folder picker — read-only source of markdown lesson notes the coach
-  // can cite. The path is stored in config (not a secret).
+  // Notes folder picker. Reading is always-on once a folder is set (the coach
+  // cites markdown lesson notes from it); writing session/coach notes back
+  // into it is a separate opt-in toggle (notesWriteEnabled). The path is
+  // stored in config (not a secret).
   ipcMain.handle('notes:pickFolder', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     return r.canceled ? null : r.filePaths[0]
@@ -553,7 +599,7 @@ app.whenReady().then(() => {
   // Backend readiness in one call: which backend is selected + whether it can
   // actually serve a request right now.
   ipcMain.handle('coach:status', async () => {
-    const { coachBackend, coachModel, notesFolder } = loadConfig()
+    const { coachBackend, coachModel, notesFolder, notesWriteEnabled } = loadConfig()
     const key = keyStatus()
     const cli = await detectCli()
     return {
@@ -563,6 +609,7 @@ app.whenReady().then(() => {
       cliFound: cli.found,
       cliVersion: cli.version,
       notesConfigured: !!notesFolder,
+      notesWritable: !!notesFolder && notesWriteEnabled,
       ready: coachBackend === 'claude-cli' ? cli.found : key.configured
     }
   })
@@ -603,6 +650,13 @@ app.whenReady().then(() => {
         : await generateReport(inputs, cfg.coachModel, onDelta)
     if (!res.ok || !res.text) return res
     const { prose, gaps }: { prose: string; gaps: CoachGap[] } = parseAdvice(res.text)
+    writeNoteBlock(cfg, {
+      relPath: sessionRelPath(runId, run.createdAt),
+      kind: 'coach',
+      key: runId,
+      content: renderCoachBlock({ date: new Date().toISOString().slice(0, 10), prose, gaps }),
+      frontmatter: { generator: 'refframe', date: sessionDate(runId, run.createdAt) }
+    })
     return { ...res, text: prose, gaps }
   })
 
@@ -630,11 +684,24 @@ app.whenReady().then(() => {
       const date =
         payload.date && payload.date.trim() ? payload.date : new Date().toISOString().slice(0, 10)
       try {
-        return saveFocusGroup(join(dataDir(), 'coach'), {
+        const result = saveFocusGroup(join(dataDir(), 'coach'), {
           date,
           prose: payload.prose,
           focuses: payload.focuses
         })
+        if (result.ok) {
+          // focuses.json stays the source of truth the coach prompt reads;
+          // this is a Progress.md mirror for the dancer's own notes folder.
+          const groups = readFocusGroups(join(dataDir(), 'coach'))
+          writeNoteBlock(loadConfig(), {
+            relPath: 'Progress.md',
+            kind: 'focuses',
+            key: 'current',
+            content: renderFocusesBlock(groups),
+            frontmatter: { generator: 'refframe', date: new Date().toISOString().slice(0, 10) }
+          })
+        }
+        return result
       } catch (err) {
         return { ok: false, reason: String(err) }
       }

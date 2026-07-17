@@ -1,6 +1,6 @@
 {
   "name": "reference-frame",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Reference Frame — WCS dance video analysis: your practice videos vs the pro ceiling",
   "main": "./out/main/index.js",
   "author": "Ajay Phatak",

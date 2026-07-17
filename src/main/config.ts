@@ -10,6 +10,11 @@ export interface AppConfig {
   userName: string
   poseModel: 'n' | 's' | 'm' | 'l' | 'x'
   notesFolder: string | null
+  // Reading the notes folder is implicit whenever notesFolder is set (the
+  // coach always cites it). Writing session/coach notes back into it is
+  // opt-in — the folder may be the user's precious real Obsidian vault, so
+  // read-only must stay the safe default.
+  notesWriteEnabled: boolean
   // 'api' = Anthropic API key (credits); 'claude-cli' = spawn the user's
   // local Claude Code install (bills their Pro/Max plan). Wired in phase 4.
   coachBackend: 'api' | 'claude-cli'
@@ -22,6 +27,7 @@ const DEFAULTS: AppConfig = {
   userName: '',
   poseModel: 'm',
   notesFolder: null,
+  notesWriteEnabled: false,
   coachBackend: 'api',
   coachModel: 'sonnet',
   // Phase 3 adds the Onboarding view — gate new users on it until they

@@ -99,7 +99,14 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
 
 ## Roadmap state
 
-v0.1.0 tagged 2026-07-16 (full app: engine, views, seed flow, YouTube,
-onboarding, coach). v0.2.0 in progress: user-managed Pros tab built
-(bundled pro_baselines removed); remaining — live E2E of the add-pro
-flow against the real engine, release-checklist pass, tag.
+v0.1.0 and v0.2.0 both tagged 2026-07-16 (full app; then user-managed
+Pros tab, bundled pro_baselines removed). v0.3.0 in progress
+(docs/plan-0.3.0-practice-notes.md): notes-folder WRITE side built —
+marker-block writer (src/main/notes/writer.ts) + block renderers
+(blocks.ts), opt-in notesWriteEnabled toggle (default off), run/coach
+blocks into Sessions/YYYY-MM-DD.md + focuses mirror into Progress.md,
+reader skips own `run` blocks; smoke-verified against
+refframe-test-notes (upsert idempotence + canary). Also folds in the
+never-released 0.2.1 label tweaks. Remaining — live in-app E2E
+(analyze → coach → focuses against the test vault), release-checklist
+pass, tag. Stretch (uncut, undone): Progress.md metrics trend table.

@@ -22,6 +22,9 @@ export interface AppConfig {
   userName: string
   poseModel: 'n' | 's' | 'm' | 'l' | 'x'
   notesFolder: string | null
+  // Read is implicit whenever notesFolder is set; write is opt-in (see
+  // src/main/config.ts).
+  notesWriteEnabled: boolean
   coachBackend: 'api' | 'claude-cli'
   coachModel: 'opus' | 'sonnet' | 'haiku'
   onboarded: boolean
@@ -224,6 +227,7 @@ export interface CoachStatus {
   cliFound: boolean
   cliVersion?: string
   notesConfigured: boolean
+  notesWritable: boolean
   ready: boolean
 }
 
