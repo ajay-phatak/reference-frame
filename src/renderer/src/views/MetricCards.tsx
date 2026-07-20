@@ -22,6 +22,9 @@ interface Props {
 }
 
 export function MetricCards({ metrics, role, partner }: Props): React.JSX.Element | null {
+  // Secondary values are labeled by the partner's actual role, not "partner" —
+  // the analyzed dancer's role tells us which one that is.
+  const partnerWord = role === 'lead' ? 'follower' : 'leader'
   const sections = SECTION_ORDER.map((section) => {
     const cards: ResolvedMetric[] = []
     for (const def of METRIC_REGISTRY) {
@@ -43,7 +46,12 @@ export function MetricCards({ metrics, role, partner }: Props): React.JSX.Elemen
           <p className="eyebrow">{SECTION_LABELS[section]}</p>
           <div className="metric-grid">
             {cards.map((c) => (
-              <MetricCard key={c.def.key} resolved={c} showPartner={partner} />
+              <MetricCard
+                key={c.def.key}
+                resolved={c}
+                showPartner={partner}
+                partnerWord={partnerWord}
+              />
             ))}
           </div>
         </div>
@@ -54,10 +62,12 @@ export function MetricCards({ metrics, role, partner }: Props): React.JSX.Elemen
 
 function MetricCard({
   resolved,
-  showPartner
+  showPartner,
+  partnerWord
 }: {
   resolved: ResolvedMetric
   showPartner: boolean
+  partnerWord: string
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const { def, value, partnerValue, partnerOnly } = resolved
@@ -72,7 +82,7 @@ function MetricCard({
       <div className="row-between">
         <span className="small">
           {def.label}
-          {partnerOnly && <span className="muted tiny"> · partner</span>}
+          {partnerOnly && <span className="muted tiny"> · your {partnerWord}</span>}
         </span>
         <button
           type="button"
@@ -87,7 +97,7 @@ function MetricCard({
       <div className="metric-value">{display}</div>
       {partnerDisplay && (
         <p className="muted tiny" style={{ margin: 0 }}>
-          partner: {partnerDisplay}
+          {partnerWord}: {partnerDisplay}
         </p>
       )}
       {open && (

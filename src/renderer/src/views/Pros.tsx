@@ -332,8 +332,8 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
             <h4>Find the couple</h4>
             <p className="muted tiny">
               Pick a timestamp where both dancers are fully in frame and clearly separated — not
-              overlapping, mid-lift, or hidden behind anyone. Then click the LEAD of the couple
-              first, then the partner.
+              overlapping, mid-lift, or hidden behind anyone. Then click the LEADER of the couple
+              first, then the follower.
             </p>
             <div className="row" style={{ flexWrap: 'wrap', gap: 12 }}>
               <label className="check-label">
@@ -391,7 +391,7 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
 
                 <div className="row" style={{ marginTop: 8, flexWrap: 'wrap', gap: 12 }}>
                   <label className="check-label">
-                    Lead is #
+                    Leader is #
                     <br />
                     <input
                       type="number"
@@ -403,7 +403,7 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
                     />
                   </label>
                   <label className="check-label">
-                    Partner is #
+                    Follower is #
                     <br />
                     <input
                       type="number"
@@ -420,8 +420,8 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
                 </div>
                 <p className="muted tiny" style={{ marginTop: 4 }}>
                   {leadIdx != null && partnerIdx != null
-                    ? `Lead: #${leadIdx} · Partner: #${partnerIdx}`
-                    : 'Click the lead, then the partner'}
+                    ? `Leader: #${leadIdx} · Follower: #${partnerIdx}`
+                    : 'Click the leader, then the follower'}
                 </p>
               </div>
             )}

@@ -305,6 +305,10 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   // button stays enabled while running (see submissionSeq above).
   const runDisabled = !input || (crowdMode && (seedMeIdx == null || seedPartnerIdx == null))
 
+  // Seed-picking labels name the partner by their actual role — the role
+  // selector tells us which one that is.
+  const partnerWord = role === 'lead' ? 'follower' : 'leader'
+
   const busyElsewhere = queueSnap ? queueSnap.active !== null || queueSnap.waiting.length > 0 : false
   const runLabel = running
     ? phase === 'running'
@@ -529,7 +533,7 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
                     />
                   </label>
                   <label className="check-label">
-                    Partner is #
+                    Your {partnerWord} is #
                     <br />
                     <input
                       type="number"
@@ -546,8 +550,8 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
                 </div>
                 <p className="muted tiny" style={{ marginTop: 4 }}>
                   {seedMeIdx != null && seedPartnerIdx != null
-                    ? `You: #${seedMeIdx} · Partner: #${seedPartnerIdx}`
-                    : 'Click yourself, then your partner'}
+                    ? `You: #${seedMeIdx} · Your ${partnerWord}: #${seedPartnerIdx}`
+                    : `Click yourself, then your ${partnerWord}`}
                 </p>
               </div>
             )}
