@@ -38,7 +38,14 @@ dependencies = [
     "soundfile==0.13.1",           # audio backend for librosa
     "audioread==3.1.0",            # librosa audio decode fallback
     "imageio-ffmpeg==0.6.0",       # bundled ffmpeg binary (no system install needed)
-    "yt-dlp==2026.3.17",           # YouTube / video download (used in-process, not subprocess)
+    # yt-dlp is the ONE deliberate deviation from the frozen source-env
+    # versions above: YouTube rotates its URL signing, so a stale yt-dlp
+    # starts 403ing mid-download (bit us at 2026.3.17 in July 2026). It is
+    # download-only — analysis never imports it — so golden diffs are
+    # unaffected; bump it freely whenever downloads break. Note 2026.4+
+    # prefers an external JS runtime (deno) for full format coverage; without
+    # one it falls back to a non-JS client, which currently works fine.
+    "yt-dlp==2026.7.4",            # YouTube / video download (used in-process, not subprocess)
 ]
 
 [project.optional-dependencies]
