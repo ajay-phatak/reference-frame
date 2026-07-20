@@ -105,10 +105,17 @@ marker-block writer + opt-in notesWriteEnabled toggle, Sessions/ +
 Progress.md blocks, reader skips own `run` blocks). v0.3.1 tagged
 2026-07-17: macOS build, Apple Silicon dmg, unsigned/ad-hoc
 (docs/plan-0.3.1-mac.md; build-engine.sh is the mac twin of the ps1;
-arm64 reports not promised byte-identical to Windows). v0.4.0 planned
-(docs/plan-0.4.0-structured-reports.md): metric registry + structured
-report cards with explainers, gap bars with multi-pro bands, run A/B
-comparison, analyze queue — app-side only, no engine changes. Backlog:
+arm64 reports not promised byte-identical to Windows). v0.4.0 tagged
+2026-07-19 per docs/plan-0.4.0-structured-reports.md: metric registry
+(57 entries, user-reviewed explainers) + structured report cards, gap
+bars with multi-pro bands, run A/B Compare view, analyze queue (FIFO
+mutex over all engine work, queued status, client-token-tagged engine
+events); plus yt-dlp 2026.7.4 bump (YouTube 403s — the one allowed
+engine-dep deviation, download-only) and a leader/follower noun pass.
+CAVEAT: tagged with the release-checklist human pass only partially
+done (user's call, time-boxed) — v0.4.1 owes the remaining verification
+(queue with 3 videos incl. URL source, kill-mid-queue sweep, old-run
+degraded rendering) plus any debugging that falls out. Backlog:
 video playback with beat-synced seeking (target 0.5.0); cross-run
 trends dashboard + Progress.md metrics trend table (post-0.5.0); real
 mac signing/notarization; hub-backlink retrieval upgrade (0.3.0 plan
