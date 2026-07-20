@@ -134,8 +134,8 @@ function Onboarding({ onDone }: Props): React.JSX.Element {
                 Your role (default)
                 <br />
                 <select value={role} onChange={(e) => setRole(e.target.value as AppConfig['role'])}>
-                  <option value="lead">Lead</option>
-                  <option value="follow">Follow</option>
+                  <option value="lead">Leader</option>
+                  <option value="follow">Follower</option>
                 </select>
               </label>
             </div>

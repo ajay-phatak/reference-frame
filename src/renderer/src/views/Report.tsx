@@ -3,6 +3,7 @@ import type { AppConfig, MetricsSummary, RunDetail } from '../../../preload/inde
 import { parseGap, type GapRow } from '../gap'
 import { GapBars } from './GapBars'
 import { MetricCards } from './MetricCards'
+import { roleNoun } from './shared'
 
 // Prefer the captured YouTube title when the engine grabbed one; otherwise
 // fall back to a small "YouTube <id>" chip, reusing the same 11-char-id regex
@@ -174,7 +175,8 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
 
       <h1>{run.videoName}</h1>
       <p className="subtitle">
-        {fmtDate(run.createdAt)} · {run.options.role} · {run.partnerName ?? 'no partner name'}
+        {fmtDate(run.createdAt)} · {roleNoun(run.options.role)} ·{' '}
+        {run.partnerName ?? 'no partner name'}
         {run.options.spotlight && (
           <span className="chip chip-even" style={{ marginLeft: 8 }}>
             spotlight

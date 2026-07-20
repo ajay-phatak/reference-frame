@@ -124,12 +124,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'texture_match_a',
     section: 'musicality',
-    label: 'Texture match — lead',
+    label: 'Texture match — leader',
     format: signed(3),
     direction: 'higher',
     explainer: ex(
-      "Whether the lead's movement quality actually changes with the song's texture — getting bouncier in punchy sections and smoother in legato ones.",
-      "The app correlates the song's texture curve against the lead's movement-quality curve over time.",
+      "Whether the leader's movement quality actually changes with the song's texture — getting bouncier in punchy sections and smoother in legato ones.",
+      "The app correlates the song's texture curve against the leader's movement-quality curve over time.",
       "A clearly positive value means their movement is tracking what the music is doing; near zero or negative means it isn't.",
       "Dancing the same texture all the way through regardless of the music, or not listening for the shift between punchy and smooth sections."
     )
@@ -137,12 +137,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'texture_match_b',
     section: 'musicality',
-    label: 'Texture match — follow',
+    label: 'Texture match — follower',
     format: signed(3),
     direction: 'higher',
     explainer: ex(
-      "Whether the follow's movement quality actually changes with the song's texture — getting bouncier in punchy sections and smoother in legato ones.",
-      "The app correlates the song's texture curve against the follow's movement-quality curve over time.",
+      "Whether the follower's movement quality actually changes with the song's texture — getting bouncier in punchy sections and smoother in legato ones.",
+      "The app correlates the song's texture curve against the follower's movement-quality curve over time.",
       "A clearly positive value means their movement is tracking what the music is doing; near zero or negative means it isn't.",
       "Dancing the same texture all the way through regardless of the music, or not listening for the shift between punchy and smooth sections."
     )
@@ -150,11 +150,11 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'bounce_match_a',
     section: 'musicality',
-    label: 'Bounce match (beat rhythm) — lead',
+    label: 'Bounce match (beat rhythm) — leader',
     format: fracPct(1),
     direction: 'higher',
     explainer: ex(
-      "How well the lead's rise-and-fall rhythm — the up-down bounce of their body — lines up with the beat of the music.",
+      "How well the leader's rise-and-fall rhythm — the up-down bounce of their body — lines up with the beat of the music.",
       'The app checks whether their bounce frequency matches the beat frequency, or a clean half-time or double-time relationship to it (×0.5, ×1, ×2).',
       'Above roughly 70% is a strong lock to the beat; below about 40% the bounce and the music are drifting apart.',
       "Rushing or dragging the beat, or bouncing at a rhythm that doesn't relate cleanly to the song's tempo."
@@ -163,11 +163,11 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'bounce_match_b',
     section: 'musicality',
-    label: 'Bounce match (beat rhythm) — follow',
+    label: 'Bounce match (beat rhythm) — follower',
     format: fracPct(1),
     direction: 'higher',
     explainer: ex(
-      "How well the follow's rise-and-fall rhythm — the up-down bounce of their body — lines up with the beat of the music.",
+      "How well the follower's rise-and-fall rhythm — the up-down bounce of their body — lines up with the beat of the music.",
       'The app checks whether their bounce frequency matches the beat frequency, or a clean half-time or double-time relationship to it (×0.5, ×1, ×2).',
       'Above roughly 70% is a strong lock to the beat; below about 40% the bounce and the music are drifting apart.',
       "Rushing or dragging the beat, or bouncing at a rhythm that doesn't relate cleanly to the song's tempo."
@@ -176,12 +176,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'on_beat_pct_a',
     section: 'musicality',
-    label: 'On-beat articulated steps — lead',
+    label: 'On-beat articulated steps — leader',
     unit: '%',
     format: pctv(1),
     direction: 'higher',
     explainer: ex(
-      "The percentage of the lead's articulated (heel-lift) steps that land right on a musical beat.",
+      "The percentage of the leader's articulated (heel-lift) steps that land right on a musical beat.",
       'The app compares the timestamp of each articulated step against the nearest detected beat time.',
       'Above about 80% is solid; below 55% steps are frequently landing off the beat, and the report flags anything under 50%.',
       "Rushing ahead of or dragging behind the music, or the song's tempo shifting in a way that's hard to track."
@@ -190,12 +190,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'on_beat_pct_b',
     section: 'musicality',
-    label: 'On-beat articulated steps — follow',
+    label: 'On-beat articulated steps — follower',
     unit: '%',
     format: pctv(1),
     direction: 'higher',
     explainer: ex(
-      "The percentage of the follow's articulated (heel-lift) steps that land right on a musical beat.",
+      "The percentage of the follower's articulated (heel-lift) steps that land right on a musical beat.",
       'The app compares the timestamp of each articulated step against the nearest detected beat time.',
       'Above about 80% is solid; below 55% steps are frequently landing off the beat, and the report flags anything under 50%.',
       "Rushing ahead of or dragging behind the music, or the song's tempo shifting in a way that's hard to track."
@@ -204,12 +204,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'timing_ms_a',
     section: 'musicality',
-    label: 'Timing consistency — lead',
+    label: 'Timing consistency — leader',
     unit: 'ms',
     format: msv,
     direction: 'lower',
     explainer: ex(
-      "How consistent the lead's step timing is relative to the beat — a small number means every step lands the same distance from the beat; a large one means it varies step to step.",
+      "How consistent the leader's step timing is relative to the beat — a small number means every step lands the same distance from the beat; a large one means it varies step to step.",
       "The app measures the offset between each step and its nearest beat, then takes the standard deviation of those offsets across the clip.",
       "Under about 80 ms is tight and repeatable. A wide spread matters even if some steps land dead on, since it means the timing is unpredictable.",
       "Inconsistent tempo tracking by the dancer, or a song with a tempo that shifts or drifts during the clip."
@@ -218,12 +218,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'timing_ms_b',
     section: 'musicality',
-    label: 'Timing consistency — follow',
+    label: 'Timing consistency — follower',
     unit: 'ms',
     format: msv,
     direction: 'lower',
     explainer: ex(
-      "How consistent the follow's step timing is relative to the beat — a small number means every step lands the same distance from the beat; a large one means it varies step to step.",
+      "How consistent the follower's step timing is relative to the beat — a small number means every step lands the same distance from the beat; a large one means it varies step to step.",
       "The app measures the offset between each step and its nearest beat, then takes the standard deviation of those offsets across the clip.",
       "Under about 80 ms is tight and repeatable. A wide spread matters even if some steps land dead on, since it means the timing is unpredictable.",
       "Inconsistent tempo tracking by the dancer, or a song with a tempo that shifts or drifts during the clip."
@@ -232,12 +232,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'syncopation_pct_a',
     section: 'musicality',
-    label: 'Syncopation % — lead',
+    label: 'Syncopation % — leader',
     unit: '%',
     format: pctv(1),
     direction: 'higher',
     explainer: ex(
-      "The percentage of the lead's weight changes that fall off the base count structure — extra or delayed weight changes rather than plain on-count steps.",
+      "The percentage of the leader's weight changes that fall off the base count structure — extra or delayed weight changes rather than plain on-count steps.",
       "The app compares weight-change timing against the detected count structure of the song and flags changes that don't line up with a plain count.",
       "N/A — some syncopation is expected WCS styling (holds, delays, extra weight changes). It's a stylistic choice, not a defect in either direction.",
       "Deliberate styling choices, or, if higher than intended, footwork that's genuinely landing off-time rather than choosing to."
@@ -246,12 +246,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'syncopation_pct_b',
     section: 'musicality',
-    label: 'Syncopation % — follow',
+    label: 'Syncopation % — follower',
     unit: '%',
     format: pctv(1),
     direction: 'higher',
     explainer: ex(
-      "The percentage of the follow's weight changes that fall off the base count structure — extra or delayed weight changes rather than plain on-count steps.",
+      "The percentage of the follower's weight changes that fall off the base count structure — extra or delayed weight changes rather than plain on-count steps.",
       "The app compares weight-change timing against the detected count structure of the song and flags changes that don't line up with a plain count.",
       "N/A — some syncopation is expected WCS styling (holds, delays, extra weight changes). It's a stylistic choice, not a defect in either direction.",
       "Deliberate styling choices, or, if higher than intended, footwork that's genuinely landing off-time rather than choosing to."
@@ -260,12 +260,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'accent_response_pct_a',
     section: 'musicality',
-    label: 'Accent response % — lead',
+    label: 'Accent response % — leader',
     unit: '%',
     format: pctv(1),
     direction: 'higher',
     explainer: ex(
-      "The percentage of musical accents — hits, breaks, stabs — that the lead marks with a noticeably bigger move somewhere in their body.",
+      "The percentage of musical accents — hits, breaks, stabs — that the leader marks with a noticeably bigger move somewhere in their body.",
       "The app looks for a burst of motion in the feet, chest, hands, or head around each detected accent, whichever channel is strongest.",
       "A clear majority answered (above roughly 65%) shows they're catching the accents; below about 35% most are passing unmarked.",
       "Not listening for hits and breaks in the music, or a dominant channel (e.g. feet-only) that doesn't fire on every kind of accent."
@@ -274,12 +274,12 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'accent_response_pct_b',
     section: 'musicality',
-    label: 'Accent response % — follow',
+    label: 'Accent response % — follower',
     unit: '%',
     format: pctv(1),
     direction: 'higher',
     explainer: ex(
-      "The percentage of musical accents — hits, breaks, stabs — that the follow marks with a noticeably bigger move somewhere in their body.",
+      "The percentage of musical accents — hits, breaks, stabs — that the follower marks with a noticeably bigger move somewhere in their body.",
       "The app looks for a burst of motion in the feet, chest, hands, or head around each detected accent, whichever channel is strongest.",
       "A clear majority answered (above roughly 65%) shows they're catching the accents; below about 35% most are passing unmarked.",
       "Not listening for hits and breaks in the music, or a dominant channel (e.g. feet-only) that doesn't fire on every kind of accent."
@@ -288,11 +288,11 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'accent_hit_mean_a',
     section: 'musicality',
-    label: 'Accent hit intensity — lead',
+    label: 'Accent hit intensity — leader',
     format: timesv,
     direction: 'higher',
     explainer: ex(
-      "How much bigger the lead's strongest response to a musical accent is compared to their typical movement — the size of the punctuation, not just whether they responded.",
+      "How much bigger the leader's strongest response to a musical accent is compared to their typical movement — the size of the punctuation, not just whether they responded.",
       "The app takes the peak motion energy in their strongest channel near each accent and expresses it as a multiple of their baseline movement energy.",
       "Clearly above 1× means real punctuation on the accents; close to 1× means their movement barely changes when an accent hits.",
       "Flat, evenly-paced movement throughout the clip with no dynamic contrast to spend on the big moments."
@@ -301,11 +301,11 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'accent_hit_mean_b',
     section: 'musicality',
-    label: 'Accent hit intensity — follow',
+    label: 'Accent hit intensity — follower',
     format: timesv,
     direction: 'higher',
     explainer: ex(
-      "How much bigger the follow's strongest response to a musical accent is compared to their typical movement — the size of the punctuation, not just whether they responded.",
+      "How much bigger the follower's strongest response to a musical accent is compared to their typical movement — the size of the punctuation, not just whether they responded.",
       "The app takes the peak motion energy in their strongest channel near each accent and expresses it as a multiple of their baseline movement energy.",
       "Clearly above 1× means real punctuation on the accents; close to 1× means their movement barely changes when an accent hits.",
       "Flat, evenly-paced movement throughout the clip with no dynamic contrast to spend on the big moments."
@@ -320,7 +320,7 @@ export const METRIC_REGISTRY: MetricDef[] = [
     direction: 'higher',
     explainer: ex(
       "Whether a musical accent lands for the couple at all — credited if either partner expresses it, even if the other stays framing/still.",
-      "The app takes the union of both dancers' individual accent responses, so a lead going still to set up the follow still counts as the accent landing.",
+      "The app takes the union of both dancers' individual accent responses, so a leader going still to set up the follower still counts as the accent landing.",
       "High coverage (above about 75%) means the moment is rarely missed by both of you at once — that matters more than a low individual score when your partner covered it.",
       "Both partners going still or unresponsive on the same accents, so nobody catches the moment."
     )
@@ -585,7 +585,7 @@ export const METRIC_REGISTRY: MetricDef[] = [
     explainer: ex(
       "How far you personally travel down the slot — the line the pattern runs along — over the course of the clip, measured in body heights.",
       "The app tracks your position along the slot axis (found by fitting a line through both dancers' movement) and measures the range it spans.",
-      "A healthy range for the pattern content shown; the follow typically covers more slot distance than the lead across a clip.",
+      "A healthy range for the pattern content shown; the follower typically covers more slot distance than the leader across a clip.",
       "Staying anchored near one spot in the slot rather than committing to travel down it on patterns that call for it."
     )
   },
@@ -741,13 +741,13 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'lean_toward_conn_a',
     section: 'weight_countering',
-    label: 'Lead lean toward connection',
+    label: 'Leader lean toward connection',
     unit: '°',
     format: degv(1),
     direction: 'lower',
     // Judgment call: inferred from _flag(lean_a, 0, 45, invert=True).
     explainer: ex(
-      "How far the lead leans their body toward the connection point, rather than staying balanced over their own feet.",
+      "How far the leader leans their body toward the connection point, rather than staying balanced over their own feet.",
       "The app measures the lean angle of the torso toward the shared connection, averaged across the clip.",
       "Staying moderate is the goal; the report flags anything above 45° as an extreme lean, and any meaningful lean at all is worth watching.",
       "Over-leaning or hanging on the connection instead of holding their own balance and frame."
@@ -756,13 +756,13 @@ export const METRIC_REGISTRY: MetricDef[] = [
   {
     key: 'lean_toward_conn_b',
     section: 'weight_countering',
-    label: 'Follow lean toward connection',
+    label: 'Follower lean toward connection',
     unit: '°',
     format: degv(1),
     direction: 'lower',
     // Judgment call: inferred from _flag(lean_b, 0, 45, invert=True).
     explainer: ex(
-      "How far the follow leans their body toward the connection point, rather than staying balanced over their own feet.",
+      "How far the follower leans their body toward the connection point, rather than staying balanced over their own feet.",
       "The app measures the lean angle of the torso toward the shared connection, averaged across the clip.",
       "Staying moderate is the goal; the report flags anything above 45° as an extreme lean, and any meaningful lean at all is worth watching.",
       "Over-leaning or hanging on the connection instead of holding their own balance and frame."

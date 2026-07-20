@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { RunRecord } from '../../../preload/index.d'
+import { roleNoun } from './shared'
 
 interface Props {
   onOpen: (runId: string) => void
@@ -162,7 +163,8 @@ function Library({ onOpen, onCompare, active }: Props): React.JSX.Element {
               </div>
             </div>
             <p className="muted small" style={{ margin: 0 }}>
-              {fmtDate(run.createdAt)} · {run.options.role} · {run.partnerName ?? 'no partner name'}{' '}
+              {fmtDate(run.createdAt)} · {roleNoun(run.options.role)} ·{' '}
+              {run.partnerName ?? 'no partner name'}{' '}
               · <span className={statusClass(run.status)}>{run.status}</span>
             </p>
           </div>

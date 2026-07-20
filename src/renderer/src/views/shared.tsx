@@ -6,6 +6,13 @@
 import type { SeedDetection } from '../../../preload/index.d'
 import { STAGE_LABELS, stagePct, etaLabel, type StageState } from './engineProgress'
 
+// Display noun for a role value. The stored value stays 'lead'/'follow'
+// (run.json, IPC, engine args all use it) — only user-facing text says
+// leader/follower.
+export function roleNoun(role: 'lead' | 'follow'): string {
+  return role === 'lead' ? 'leader' : 'follower'
+}
+
 // --- Video file/URL input, with the app's selected-state highlight ---
 
 interface VideoInputProps {

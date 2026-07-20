@@ -379,8 +379,8 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             Your role
             <br />
             <select value={role} onChange={(e) => setRole(e.target.value as 'lead' | 'follow')}>
-              <option value="lead">Lead</option>
-              <option value="follow">Follow</option>
+              <option value="lead">Leader</option>
+              <option value="follow">Follower</option>
             </select>
           </label>
           <label className="check-label">

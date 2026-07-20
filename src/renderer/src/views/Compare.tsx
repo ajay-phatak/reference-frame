@@ -15,6 +15,7 @@ import {
   type MetricDirection
 } from '../metrics/registry'
 import { formatValue, resolveMetric, SECTION_LABELS } from '../metrics/resolve'
+import { roleNoun } from './shared'
 
 interface Props {
   runA: string
@@ -99,7 +100,8 @@ function RunHeader({ label, run }: { label: string; run: RunRecord }): React.JSX
       <p className="eyebrow">{label}</p>
       <h3 className="h-inline">{run.videoName}</h3>
       <p className="muted small" style={{ margin: 0 }}>
-        {fmtDate(run.createdAt)} · {run.options.role} · {run.partnerName ?? 'no partner name'}
+        {fmtDate(run.createdAt)} · {roleNoun(run.options.role)} ·{' '}
+        {run.partnerName ?? 'no partner name'}
         {run.options.spotlight && (
           <span className="chip chip-even" style={{ marginLeft: 8 }}>
             spotlight
