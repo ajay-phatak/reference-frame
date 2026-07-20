@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { AppConfig, RunDetail } from '../../../preload/index.d'
+import type { AppConfig, MetricsSummary, RunDetail } from '../../../preload/index.d'
 import { parseGap, type GapRow } from '../gap'
+import { GapBars } from './GapBars'
+import { MetricCards } from './MetricCards'
 
 // Prefer the captured YouTube title when the engine grabbed one; otherwise
 // fall back to a small "YouTube <id>" chip, reusing the same 11-char-id regex
@@ -55,11 +57,30 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
   const [loaded, setLoaded] = useState<{ runId: string; detail: RunDetail | null } | null>(null)
   const [swapping, setSwapping] = useState(false)
   const [swapError, setSwapError] = useState<string | null>(null)
+  // Metrics are a progressive-enhancement overlay (plan-0.4.0 §3), loaded
+  // separately from RunDetail — a null result (old run, failed run) leaves
+  // the view exactly as it was before this feature existed.
+  const [metricsState, setMetricsState] = useState<{
+    runId: string
+    metrics: MetricsSummary | null
+  } | null>(null)
+  const [gapView, setGapView] = useState<'bars' | 'table'>('bars')
+  const [showFullReport, setShowFullReport] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     window.api.libraryGet(runId).then((d) => {
       if (!cancelled) setLoaded({ runId, detail: d })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [runId])
+
+  useEffect(() => {
+    let cancelled = false
+    window.api.libraryMetrics(runId).then((m) => {
+      if (!cancelled) setMetricsState({ runId, metrics: m })
     })
     return () => {
       cancelled = true
@@ -80,6 +101,9 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
   }
 
   const { run, reportText, gapText } = detail
+  // Guard against a stale fetch the same way `loaded` does above (a metrics
+  // fetch for a runId the user has since navigated away from must not apply).
+  const metrics = metricsState && metricsState.runId === runId ? metricsState.metrics : null
 
   // run.json's youId is NOT the raw pre-orientation tracked-dancer id — after
   // orientation the engine always reassigns you_id = 1 if role=="lead" else
@@ -186,47 +210,90 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
         </div>
       )}
 
-      {reportText && (
+      {metrics ? (
         <>
           <h3>Report</h3>
-          <pre className="report-text">{reportText}</pre>
+          <MetricCards metrics={metrics} role={run.options.role} partner={run.options.partner} />
         </>
+      ) : (
+        reportText && (
+          <>
+            <h3>Report</h3>
+            <pre className="report-text">{reportText}</pre>
+          </>
+        )
       )}
 
       {gap && (
         <>
-          <h3>Gap analysis vs pro references</h3>
-          {gap.couples.map((c) => (
-            <div className="card" key={c.couple}>
-              <h4 style={{ marginTop: 0 }}>{c.couple}</h4>
-              <p className="muted tiny">{c.clipsSummary}</p>
-              {c.sections.map((s, i) => (
-                <div key={i} style={{ marginBottom: 12 }}>
-                  {s.heading && <p className="eyebrow">{s.heading}</p>}
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Metric</th>
-                        <th>You</th>
-                        <th>Pro avg</th>
-                        <th>Gap</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {s.rows.map((row, j) => (
-                        <GapRowLine row={row} key={j} />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+          <div className="row-between">
+            <h3 style={{ marginBottom: 0 }}>Gap analysis vs pro references</h3>
+            <div className="row">
+              <button
+                className={`toggle-btn${gapView === 'bars' ? ' active' : ''}`}
+                onClick={() => setGapView('bars')}
+              >
+                Bars
+              </button>
+              <button
+                className={`toggle-btn${gapView === 'table' ? ' active' : ''}`}
+                onClick={() => setGapView('table')}
+              >
+                Table
+              </button>
             </div>
-          ))}
+          </div>
+
+          {gapView === 'bars' ? (
+            <GapBars gap={gap} />
+          ) : (
+            gap.couples.map((c) => (
+              <div className="card" key={c.couple}>
+                <h4 style={{ marginTop: 0 }}>{c.couple}</h4>
+                <p className="muted tiny">{c.clipsSummary}</p>
+                {c.sections.map((s, i) => (
+                  <div key={i} style={{ marginBottom: 12 }}>
+                    {s.heading && <p className="eyebrow">{s.heading}</p>}
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Metric</th>
+                          <th>You</th>
+                          <th>Pro avg</th>
+                          <th>Gap</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {s.rows.map((row, j) => (
+                          <GapRowLine row={row} key={j} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
         </>
       )}
 
       {!reportText && !gap && run.status === 'done' && (
         <p className="muted">No report text found on disk for this run.</p>
+      )}
+
+      {/* Structured cards replace the raw text above; it stays available here
+          verbatim — it's the golden-diff artifact (see CLAUDE.md). */}
+      {metrics && reportText && (
+        <div style={{ marginTop: 24, borderTop: '1px solid var(--border-1)', paddingTop: 16 }}>
+          <button className="btn-sm" onClick={() => setShowFullReport((v) => !v)}>
+            {showFullReport ? 'Hide full text report' : 'Show full text report'}
+          </button>
+          {showFullReport && (
+            <pre className="report-text" style={{ marginTop: 8 }}>
+              {reportText}
+            </pre>
+          )}
+        </div>
       )}
     </div>
   )

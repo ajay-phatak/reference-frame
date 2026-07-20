@@ -5,10 +5,12 @@ import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { EngineJob, EngineEvent } from './engine'
+import { EngineQueue } from './queue'
 import { loadConfig, saveConfig, dataDir, AppConfig } from './config'
 import * as library from './library'
 import type { RunOptions } from './library'
 import * as pros from './pros'
+import { readMetrics, type MetricsSummary } from './metrics'
 import { setKey, clearKey, keyStatus } from './coach/key'
 import { parseAdvice, type CoachGap } from './coach/advise'
 import {
@@ -145,6 +147,25 @@ app.whenReady().then(() => {
   // server-side backstop.
   let activeJob: EngineJob | null = null
 
+  // FIFO mutex serializing ALL engine work. engine:analyze queues instead of
+  // rejecting when busy (v0.4.0 analyze queue); every other engine-invoking
+  // handler still rejects via tryAcquire, just routed through this same slot
+  // so a queued analyze and e.g. setup/seed-preview can't run concurrently.
+  const queue = new EngineQueue()
+  queue.onChange((snap) => {
+    BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('queue:event', snap))
+  })
+
+  // A run left 'queued' when the app quit never got its turn — it's not
+  // resumable (the queue itself is in-memory), so mark it failed rather than
+  // leaving a phantom queued run in the Library forever. 'pending' orphans
+  // (mid-analysis at quit) are left alone — pre-existing, unrelated behavior.
+  for (const run of library.list(dataDir())) {
+    if (run.status === 'queued') {
+      library.failRun(dataDir(), run.runId, 'app closed before this run started')
+    }
+  }
+
   interface AnalyzeArgs {
     input: string
     me: 'left' | 'right'
@@ -158,11 +179,10 @@ app.whenReady().then(() => {
     seedMeIdx?: number | null
     seedPartnerIdx?: number | null
     runId?: string | null
+    clientToken?: string | null
   }
 
   ipcMain.handle('engine:analyze', async (event, opts: AnalyzeArgs) => {
-    if (activeJob) return { ok: false, reason: 'busy' }
-
     const runOptions: RunOptions = {
       me: opts.me,
       meId: opts.meId ?? null,
@@ -186,6 +206,19 @@ app.whenReady().then(() => {
       runId = created.runId
       dir = created.dir
     }
+
+    // Snapshot BEFORE acquiring — acquire() itself immediately shows this
+    // ticket as active/waiting, so checking after would always look busy.
+    const busySnap = queue.snapshot()
+    const busy = busySnap.active !== null || busySnap.waiting.length > 0
+    if (busy) library.setStatus(dataDir(), runId, 'queued')
+    const turn = await queue.acquire(runId)
+    if (turn === 'canceled') {
+      // Canceled from the Library while still waiting — queue:cancel already
+      // marked the record via failRun, don't fail it a second time here.
+      return { ok: false, runId, reason: 'canceled' }
+    }
+    library.setStatus(dataDir(), runId, 'pending')
 
     const args = [
       'analyze',
@@ -222,7 +255,13 @@ app.whenReady().then(() => {
       const exitCode = await job.run(args, (e: EngineEvent) => {
         if (e.event === 'result') resultEvent = e
         if (e.event === 'error' && typeof e.msg === 'string') errorMsg = e.msg
-        event.sender.send('engine:event', e)
+        // Stamp the caller's token so a renderer with several analyze
+        // submissions in flight can tell whose progress this is —
+        // engine:event is one shared channel (see EngineEvent.clientToken).
+        event.sender.send(
+          'engine:event',
+          opts.clientToken ? { ...e, clientToken: opts.clientToken } : e
+        )
       })
       if (exitCode === 0 && resultEvent && resultEvent.kind === 'analysis') {
         const record = library.completeRun(dataDir(), runId, resultEvent as library.AnalysisResult)
@@ -257,12 +296,23 @@ app.whenReady().then(() => {
       return { ok: false, runId, reason }
     } finally {
       activeJob = null
+      queue.release(runId)
     }
   })
 
   ipcMain.handle('engine:cancel', () => {
     activeJob?.cancel()
     return true
+  })
+
+  ipcMain.handle('queue:list', () => queue.snapshot())
+
+  ipcMain.handle('queue:cancel', (_e, runId: string) => {
+    if (queue.cancel(runId)) {
+      library.failRun(dataDir(), runId, 'canceled')
+      return { ok: true }
+    }
+    return { ok: false, reason: 'not queued' }
   })
 
   ipcMain.handle('engine:doctor', async (event) => {
@@ -278,7 +328,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('engine:setup', async (event, opts: { poseModel: string }) => {
-    if (activeJob) return { ok: false, reason: 'busy' }
+    if (!queue.tryAcquire('setup')) return { ok: false, reason: 'busy' }
 
     let result: EngineEvent | null = null
     let error: EngineEvent | null = null
@@ -296,6 +346,7 @@ app.whenReady().then(() => {
       return { exitCode, result, error }
     } finally {
       activeJob = null
+      queue.release('setup')
     }
   })
 
@@ -313,13 +364,16 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('engine:seedPreview', async (event, opts: SeedPreviewArgs) => {
-    if (activeJob) return { ok: false, reason: 'busy' }
+    if (!queue.tryAcquire('seed-preview')) return { ok: false, reason: 'busy' }
 
     let runId: string
     let dir: string
     if (opts.runId) {
       dir = library.runDirPath(dataDir(), opts.runId)
-      if (!existsSync(dir)) return { ok: false, reason: 'run not found' }
+      if (!existsSync(dir)) {
+        queue.release('seed-preview')
+        return { ok: false, reason: 'run not found' }
+      }
       runId = opts.runId
     } else {
       const runOptions: RunOptions = {
@@ -379,11 +433,16 @@ app.whenReady().then(() => {
       return { ok: false, runId, reason: String(err) }
     } finally {
       activeJob = null
+      queue.release('seed-preview')
     }
   })
 
   ipcMain.handle('library:list', () => library.list(dataDir()))
   ipcMain.handle('library:get', (_e, runId: string) => library.get(dataDir(), runId))
+  ipcMain.handle('library:metrics', (_e, runId: string): MetricsSummary | null => {
+    const metricsPath = library.get(dataDir(), runId)?.run.resultPaths.metricsPath
+    return metricsPath ? readMetrics(metricsPath) : null
+  })
   ipcMain.handle('library:delete', (_e, runId: string) => ({
     ok: library.remove(dataDir(), runId)
   }))
@@ -418,7 +477,7 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('pros:seedPreview', async (event, opts: ProSeedPreviewArgs) => {
-    if (activeJob) return { ok: false, reason: 'busy' }
+    if (!queue.tryAcquire('pros-seed-preview')) return { ok: false, reason: 'busy' }
 
     const jobId = opts.jobId ?? randomUUID()
     const dir = prosWorkDir(jobId)
@@ -465,6 +524,7 @@ app.whenReady().then(() => {
       return { ok: false, jobId, reason: String(err) }
     } finally {
       activeJob = null
+      queue.release('pros-seed-preview')
     }
   })
 
@@ -479,14 +539,22 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('pros:add', async (event, opts: AddProArgs) => {
-    if (activeJob) return { ok: false, reason: 'busy' }
+    // One ticket held across BOTH engine invocations below (analyze then
+    // export-baseline) — this is a single logical job from the queue's POV.
+    if (!queue.tryAcquire('pros-add')) return { ok: false, reason: 'busy' }
 
     const dir = prosWorkDir(opts.jobId)
-    if (!existsSync(dir)) return { ok: false, reason: 'Job not found — run seed preview first' }
+    if (!existsSync(dir)) {
+      queue.release('pros-add')
+      return { ok: false, reason: 'Job not found — run seed preview first' }
+    }
 
     const label = opts.label.trim()
     const couple = opts.couple.trim()
-    if (!label || !couple) return { ok: false, reason: 'Label and couple are required' }
+    if (!label || !couple) {
+      queue.release('pros-add')
+      return { ok: false, reason: 'Label and couple are required' }
+    }
 
     const analyzeArgs = [
       'analyze',
@@ -572,6 +640,7 @@ app.whenReady().then(() => {
       return { ok: false, reason: String(err) }
     } finally {
       activeJob = null
+      queue.release('pros-add')
     }
   })
 

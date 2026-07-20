@@ -358,6 +358,18 @@
   background: var(--bg-2);
 }
 
+/* --- dimmed/inert cards (Library "pick B for comparison" mode) --- */
+
+.card-dimmed {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.card-click.card-dimmed:hover {
+  border-color: var(--border-1);
+  background: var(--bg-1);
+}
+
 /* --- per-stage progress bars (Analyze) --- */
 
 .stage-row {
@@ -447,6 +459,55 @@
   font-family: var(--font-mono);
   padding: 0 2px;
   line-height: 1.4;
+}
+
+/* --- metric cards (Report, plan-0.4.0) --- */
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.metric-card {
+  margin-bottom: 0; /* .card's default margin-bottom fights the grid gap above */
+}
+
+.metric-card-secondary {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.metric-value {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+  margin-top: var(--space-1);
+}
+
+.info-toggle {
+  line-height: 1;
+  color: var(--text-3);
+}
+
+.explainer {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-1);
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
+
+.explainer p {
+  margin: 0 0 var(--space-2);
+}
+
+.explainer p:last-child {
+  margin-bottom: 0;
+}
+
+.explainer strong {
+  color: var(--text-2);
 }
 
 /* --- report text (Report) --- */

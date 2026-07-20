@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppConfig, UpdateCheck } from '../../preload/index.d'
 import Analyze from './views/Analyze'
 import Coach from './views/Coach'
+import Compare from './views/Compare'
 import Library from './views/Library'
 import Onboarding from './views/Onboarding'
 import Pros from './views/Pros'
@@ -17,6 +18,7 @@ function App(): React.JSX.Element {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [runId, setRunId] = useState<string | null>(null)
   const [coachRunId, setCoachRunId] = useState<string | null>(null)
+  const [comparePair, setComparePair] = useState<{ a: string; b: string } | null>(null)
   const [analyzeBusy, setAnalyzeBusy] = useState(false)
   const [prosBusy, setProsBusy] = useState(false)
 
@@ -37,7 +39,13 @@ function App(): React.JSX.Element {
   const goTo = (v: View): void => {
     setRunId(null)
     setCoachRunId(null)
+    setComparePair(null)
     setView(v)
+  }
+
+  // Library's "Compare" flow lands here with both runIds already chosen.
+  const openCompare = (a: string, b: string): void => {
+    setComparePair({ a, b })
   }
 
   // "Ask the coach" on a Report hands off to the Coach view, seeded to that
@@ -90,8 +98,9 @@ function App(): React.JSX.Element {
           <>
             {/* All five views stay mounted (display: none when inactive) so a
                 long-running engine job's local state and event subscription
-                survive the user switching tabs. Report keeps its previous
-                remount-on-click behaviour, nested inside the Library slot. */}
+                survive the user switching tabs. Report/Compare keep their
+                previous remount-on-click behaviour, nested inside the
+                Library slot. */}
             <div hidden={view !== 'Analyze'}>
               <Analyze
                 config={config}
@@ -101,10 +110,16 @@ function App(): React.JSX.Element {
               />
             </div>
             <div hidden={view !== 'Library'}>
-              {runId ? (
+              {comparePair ? (
+                <Compare
+                  runA={comparePair.a}
+                  runB={comparePair.b}
+                  onBack={() => setComparePair(null)}
+                />
+              ) : runId ? (
                 <Report runId={runId} onBack={() => setRunId(null)} onAskCoach={askCoach} />
               ) : (
-                <Library onOpen={openRun} active={view === 'Library'} />
+                <Library onOpen={openRun} onCompare={openCompare} active={view === 'Library'} />
               )}
             </div>
             <div hidden={view !== 'Pros'}>

@@ -26,7 +26,7 @@ export interface RunRecord {
   videoName: string
   options: RunOptions
   partnerName: string | null
-  status: 'pending' | 'done' | 'error'
+  status: 'queued' | 'pending' | 'done' | 'error'
   createdAt: string
   updatedAt: string
   resultPaths: {
@@ -203,6 +203,22 @@ export function beginRerun(
   record.updatedAt = new Date().toISOString()
   writeRun(dataDir, record)
   return { runId, dir: runDirPath(dataDir, runId) }
+}
+
+// Queue-only status transitions ('queued' while waiting on the engine
+// mutex, back to 'pending' once it's this run's turn) — unlike
+// completeRun/failRun, never touches resultPaths/error.
+export function setStatus(
+  dataDir: string,
+  runId: string,
+  status: 'queued' | 'pending'
+): RunRecord | null {
+  const record = readRun(dataDir, runId)
+  if (!record) return null
+  record.status = status
+  record.updatedAt = new Date().toISOString()
+  writeRun(dataDir, record)
+  return record
 }
 
 export function failRun(dataDir: string, runId: string, reason: string): RunRecord | null {

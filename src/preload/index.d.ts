@@ -11,6 +11,12 @@ export interface EngineEvent {
   level?: string
   code?: string
   kind?: string
+  // App-side tag, NOT from the engine: engine:analyze stamps forwarded events
+  // with the caller's AnalyzeOptions.clientToken so a view with several
+  // analyze submissions in flight (v0.4.0 queue) can tell whose progress an
+  // event belongs to. Absent on events from other engine invocations
+  // (doctor, setup, seed-preview, swap-dancers reruns without a token).
+  clientToken?: string
   [key: string]: unknown
 }
 
@@ -50,6 +56,9 @@ export interface AnalyzeOptions {
   seedMeIdx?: number | null
   seedPartnerIdx?: number | null
   runId?: string | null
+  // Caller-generated identity echoed back on this job's engine:event stream
+  // (see EngineEvent.clientToken).
+  clientToken?: string | null
 }
 
 export interface SeedPreviewOptions {
@@ -98,6 +107,19 @@ export interface AnalyzeResult {
   tracking?: Record<string, number | null> | null
 }
 
+// ---- Analyze queue (0.4.0 phase 5) — FIFO mutex serializing engine work.
+// `active` is the runId currently running; `waiting` is runIds in arrival
+// order (see src/main/queue.ts).
+export interface QueueSnapshot {
+  active: string | null
+  waiting: string[]
+}
+
+export interface QueueCancelResult {
+  ok: boolean
+  reason?: string
+}
+
 export interface DoctorCheck {
   ok: boolean
   path?: string
@@ -135,7 +157,7 @@ export interface RunRecord {
   videoName: string
   options: RunOptions
   partnerName: string | null
-  status: 'pending' | 'done' | 'error'
+  status: 'queued' | 'pending' | 'done' | 'error'
   createdAt: string
   updatedAt: string
   resultPaths: {
@@ -159,6 +181,14 @@ export interface RunDetail {
   run: RunRecord
   reportText: string | null
   gapText: string | null
+}
+
+// ---- Metrics (0.4.0) — the per-run structured metrics JSON, pruned to
+// scalars only (arrays like step_data are dropped — see src/main/metrics.ts).
+export type MetricsScalar = number | string | boolean | null
+
+export interface MetricsSummary {
+  [key: string]: MetricsScalar | MetricsSummary
 }
 
 // ---- Pros (v0.2.0) — user-managed pro baselines ----
@@ -285,7 +315,12 @@ export interface ReferenceFrameApi {
   libraryGet: (runId: string) => Promise<RunDetail | null>
   libraryDelete: (runId: string) => Promise<{ ok: boolean }>
   libraryOpenFolder: (runId: string) => Promise<{ ok: boolean }>
+  libraryMetrics: (runId: string) => Promise<MetricsSummary | null>
   onEngineEvent: (cb: (e: EngineEvent) => void) => () => void
+  // Analyze queue (0.4.0 phase 5)
+  queueList: () => Promise<QueueSnapshot>
+  queueCancel: (runId: string) => Promise<QueueCancelResult>
+  onQueueEvent: (cb: (snap: QueueSnapshot) => void) => () => void
   // Pros (v0.2.0)
   prosList: () => Promise<ProEntry[]>
   prosRemove: (id: string) => Promise<{ ok: boolean }>

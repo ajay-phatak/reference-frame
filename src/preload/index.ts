@@ -12,9 +12,12 @@ import type {
   CoachStatus,
   DoctorResult,
   EngineEvent,
+  MetricsSummary,
   ProEntry,
   ProSeedPreviewOptions,
   ProSeedPreviewResult,
+  QueueCancelResult,
+  QueueSnapshot,
   ReferenceFrameApi,
   RunDetail,
   RunRecord,
@@ -48,10 +51,21 @@ const api: ReferenceFrameApi = {
     ipcRenderer.invoke('library:delete', runId),
   libraryOpenFolder: (runId: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('library:openFolder', runId),
+  libraryMetrics: (runId: string): Promise<MetricsSummary | null> =>
+    ipcRenderer.invoke('library:metrics', runId),
   onEngineEvent: (cb: (e: EngineEvent) => void): (() => void) => {
     const listener = (_e: Electron.IpcRendererEvent, payload: EngineEvent): void => cb(payload)
     ipcRenderer.on('engine:event', listener)
     return () => ipcRenderer.removeListener('engine:event', listener)
+  },
+  // Analyze queue (0.4.0 phase 5)
+  queueList: (): Promise<QueueSnapshot> => ipcRenderer.invoke('queue:list'),
+  queueCancel: (runId: string): Promise<QueueCancelResult> =>
+    ipcRenderer.invoke('queue:cancel', runId),
+  onQueueEvent: (cb: (snap: QueueSnapshot) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, snap: QueueSnapshot): void => cb(snap)
+    ipcRenderer.on('queue:event', listener)
+    return () => ipcRenderer.removeListener('queue:event', listener)
   },
   // Pros (v0.2.0)
   prosList: (): Promise<ProEntry[]> => ipcRenderer.invoke('pros:list'),

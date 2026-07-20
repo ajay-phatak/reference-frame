@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseGap } from './gap'
+import { aggregateGap, parseGap, type ParsedGap } from './gap'
 
 const SAMPLE = `
 ========================================================================
@@ -72,5 +72,151 @@ describe('parseGap', () => {
   it('exposes the header title', () => {
     const parsed = parseGap(SAMPLE)
     expect(parsed.title).toContain('GAP ANALYSIS')
+  })
+})
+
+const SINGLE_COUPLE = `
+========================================================================
+  GAP ANALYSIS vs PRO REFERENCES  (broken out per couple)
+========================================================================
+
+------------------------------------------------------------------------
+  vs Solo/Only  —  averaged over 1 clip: Only Clip (90 BPM)
+------------------------------------------------------------------------
+  -- YOU (LEAD) --
+  Rise/fall typical (bounce on avg steps) — you   you=0.0200  pro avg=0.0187  ▲ +0.0013
+
+========================================================================`
+
+describe('aggregateGap', () => {
+  it('builds a multi-couple band with correct min/max/n for a label present in every couple', () => {
+    const aggregated = aggregateGap(parseGap(SAMPLE))
+    const section = aggregated.sections.find((s) => s.heading === 'YOU (LEAD)')!
+    const row = section.rows.find(
+      (r) => r.label === 'Rise/fall typical (bounce on avg steps) — you'
+    )!
+
+    expect(row.plottable).toBe(true)
+    expect(row.you).toBeCloseTo(0.02)
+    expect(row.n).toBe(2)
+    expect(row.proMin).toBeCloseTo(0.0187)
+    expect(row.proMax).toBeCloseTo(0.0208)
+    expect(row.points.map((p) => p.couple).sort()).toEqual(
+      ['Jordan/Tatiana', 'Semion/Maria'].sort()
+    )
+    // Semion/Maria favorable (▲ +0.0013), Jordan/Tatiana not (▼ -0.0008) — a
+    // 1-of-2 tie is broken toward favorable (favorableCount * 2 >= n), and
+    // delta is the average of the two per-couple deltas.
+    expect(row.favorable).toBe(true)
+    expect(row.delta).toBeCloseTo(0.00025, 5)
+  })
+
+  it('aggregates a label present in only one couple over just that couple (n reflects it)', () => {
+    const aggregated = aggregateGap(parseGap(SAMPLE))
+    const section = aggregated.sections.find((s) => s.heading === 'YOU (LEAD)')!
+    // "1-foot balance % — you" only appears under Semion/Maria, not Jordan/Tatiana.
+    const row = section.rows.find((r) => r.label === '1-foot balance % — you')!
+
+    expect(row.plottable).toBe(true)
+    expect(row.n).toBe(1)
+    expect(row.proMin).toBeCloseTo(24.0)
+    expect(row.proMax).toBeCloseTo(24.0)
+    expect(row.favorable).toBe(false)
+  })
+
+  it('preserves section grouping and per-row notes', () => {
+    const aggregated = aggregateGap(parseGap(SAMPLE))
+    expect(aggregated.sections.map((s) => s.heading)).toEqual([
+      'YOU (LEAD)',
+      'PARTNER (FOLLOW)',
+      'PARTNERSHIP (both)'
+    ])
+    const partnership = aggregated.sections.find((s) => s.heading === 'PARTNERSHIP (both)')!
+    const travel = partnership.rows.find((r) => r.label === 'Floor travel range (BH)')!
+    expect(travel.note).toContain('not spotlight')
+  })
+
+  it('degrades a single-couple report to n=1 bands (the plain-pair case)', () => {
+    const aggregated = aggregateGap(parseGap(SINGLE_COUPLE))
+    const row = aggregated.sections[0].rows[0]
+
+    expect(row.plottable).toBe(true)
+    expect(row.n).toBe(1)
+    expect(row.proMin).toBe(row.proMax)
+    expect(row.proMin).toBeCloseTo(0.0187)
+    expect(row.favorable).toBe(true)
+    expect(row.delta).toBeCloseTo(0.0013, 3)
+  })
+
+  it('flags a row unplottable when you/pro cannot be read as numbers', () => {
+    const parsed: ParsedGap = {
+      title: null,
+      subtitle: [],
+      couples: [
+        {
+          couple: 'Bad/Data',
+          clipsSummary: 'averaged over 1 clip',
+          sections: [
+            {
+              heading: null,
+              rows: [
+                {
+                  label: 'Broken metric',
+                  you: NaN,
+                  pro: NaN,
+                  favorable: true,
+                  delta: NaN,
+                  note: ''
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+
+    const aggregated = aggregateGap(parsed)
+    const row = aggregated.sections[0].rows[0]
+    expect(row.plottable).toBe(false)
+    expect(row.you).toBeNull()
+    expect(row.n).toBe(0)
+    expect(row.proMin).toBeNull()
+    expect(row.proMax).toBeNull()
+  })
+
+  it('still bands a row when some couples have unparseable values and others do not', () => {
+    const parsed: ParsedGap = {
+      title: null,
+      subtitle: [],
+      couples: [
+        {
+          couple: 'Good/Data',
+          clipsSummary: 'averaged over 1 clip',
+          sections: [
+            {
+              heading: null,
+              rows: [{ label: 'Metric', you: 1, pro: 2, favorable: false, delta: -1, note: '' }]
+            }
+          ]
+        },
+        {
+          couple: 'Bad/Data',
+          clipsSummary: 'averaged over 1 clip',
+          sections: [
+            {
+              heading: null,
+              rows: [{ label: 'Metric', you: 1, pro: NaN, favorable: false, delta: NaN, note: '' }]
+            }
+          ]
+        }
+      ]
+    }
+
+    const aggregated = aggregateGap(parsed)
+    const row = aggregated.sections[0].rows[0]
+    expect(row.plottable).toBe(true)
+    expect(row.n).toBe(1)
+    expect(row.proMin).toBeCloseTo(2)
+    expect(row.proMax).toBeCloseTo(2)
   })
 })

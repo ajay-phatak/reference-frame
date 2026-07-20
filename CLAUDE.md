@@ -105,7 +105,11 @@ marker-block writer + opt-in notesWriteEnabled toggle, Sessions/ +
 Progress.md blocks, reader skips own `run` blocks). v0.3.1 tagged
 2026-07-17: macOS build, Apple Silicon dmg, unsigned/ad-hoc
 (docs/plan-0.3.1-mac.md; build-engine.sh is the mac twin of the ps1;
-arm64 reports not promised byte-identical to Windows). Backlog:
-Progress.md metrics trend table (0.3.0 stretch, undone); real mac
-signing/notarization; hub-backlink retrieval upgrade (0.3.0 plan §prior
-art).
+arm64 reports not promised byte-identical to Windows). v0.4.0 planned
+(docs/plan-0.4.0-structured-reports.md): metric registry + structured
+report cards with explainers, gap bars with multi-pro bands, run A/B
+comparison, analyze queue — app-side only, no engine changes. Backlog:
+video playback with beat-synced seeking (target 0.5.0); cross-run
+trends dashboard + Progress.md metrics trend table (post-0.5.0); real
+mac signing/notarization; hub-backlink retrieval upgrade (0.3.0 plan
+§prior art).

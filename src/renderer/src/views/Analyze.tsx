@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppConfig, EngineEvent, SeedDetection } from '../../../preload/index.d'
+import type { AppConfig, EngineEvent, QueueSnapshot, SeedDetection } from '../../../preload/index.d'
 import {
   looksLikeYoutubeUrl,
   makeSeedBoxClickHandler,
@@ -47,6 +47,35 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   const [logs, setLogs] = useState<string[]>([])
   const [showLog, setShowLog] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [canceledBanner, setCanceledBanner] = useState(false)
+
+  // Multiple analyze() calls can now be in flight at once (submit, then
+  // submit again while the first is still queued/running) — submissionSeq
+  // identifies the MOST RECENT one; any setState from an earlier submission's
+  // callback/resolution checks against it and no-ops if superseded, so an
+  // older submission resolving late can never stomp what the view is
+  // currently showing. activeUnsubRef holds the latest submission's
+  // onEngineEvent unsubscribe so a brand-new submission can detach the
+  // previous one immediately (both listen on the same shared 'engine:event'
+  // channel — only the newest submission's listener should still be
+  // updating the visible progress panel).
+  const submissionSeq = useRef(0)
+  const activeUnsubRef = useRef<(() => void) | null>(null)
+
+  // Queue state (v0.4.0 analyze queue): live snapshot of who's running/
+  // waiting server-side, used for the queue-summary chip and to decide
+  // whether submitting right now would run immediately or queue. 'phase'
+  // additionally tracks THIS view's current submission specifically — it
+  // starts as a guess from the snapshot at submit time, then flips to
+  // 'running' the moment real engine output arrives for it (the queue can't
+  // tell the renderer "your turn started" any other way — see AnalyzeArgs'
+  // lack of an early runId).
+  const [queueSnap, setQueueSnap] = useState<QueueSnapshot | null>(null)
+  const [phase, setPhase] = useState<'idle' | 'queued' | 'running'>('idle')
+  useEffect(() => {
+    window.api.queueList().then(setQueueSnap)
+    return window.api.onQueueEvent(setQueueSnap)
+  }, [])
 
   // With keep-mounted views, a run finishing while this tab is hidden must
   // NOT yank the user to the Report — stash the runId and surface a banner
@@ -167,16 +196,39 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   }
 
   const run = async (): Promise<void> => {
-    if (!input || running) return
+    if (!input) return
     if (crowdMode && (seedMeIdx == null || seedPartnerIdx == null)) return
+
+    const mySeq = ++submissionSeq.current
+    // engine:event is one shared channel; the main process stamps this
+    // submission's events with the token we pass to analyze() below, so the
+    // listener can ignore another job's output (e.g. the previous submission
+    // still running while this one waits in the queue).
+    const myToken = crypto.randomUUID()
+    // A brand-new submission always takes over the display — detach whatever
+    // an earlier still-in-flight submission was listening with, so its
+    // (superseded) progress can't keep painting over what's shown now.
+    activeUnsubRef.current?.()
     setRunning(true)
     setErrorMsg(null)
+    setCanceledBanner(false)
     setStageProgress({})
     setLogs([])
     setFinishedRunId(null)
+    setPhase(
+      queueSnap && (queueSnap.active !== null || queueSnap.waiting.length > 0) ? 'queued' : 'running'
+    )
 
     const unsubscribe = window.api.onEngineEvent((e: EngineEvent) => {
+      // Superseded by a newer submission — ignore (its own listener, not
+      // this one, now owns the visible progress panel).
+      if (submissionSeq.current !== mySeq) return
+      // Not this submission's job — while we're queued, the currently
+      // RUNNING job's events also arrive here; without this check they'd
+      // flip the label to "Running…" and paint the wrong run's stages.
+      if (e.clientToken !== myToken) return
       if (e.event === 'progress' && typeof e.stage === 'string') {
+        setPhase('running') // real engine output means it's actually our turn now
         const stage = e.stage
         setStageProgress((prev) => ({
           ...prev,
@@ -188,11 +240,13 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
           }
         }))
       } else if (e.event === 'log') {
+        setPhase('running')
         setLogs((prev) => [...prev, String(e.msg ?? '')])
       } else if (e.event === 'error') {
         setErrorMsg(String(e.msg ?? 'Engine error'))
       }
     })
+    activeUnsubRef.current = unsubscribe
 
     try {
       const res = await window.api.analyze({
@@ -204,8 +258,14 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
         poseModel,
         comparePros: comparePros && hasPros === true,
         partnerName: partnerName.trim() || null,
+        clientToken: myToken,
         ...(crowdMode ? { runId: seedRunId, seedMeIdx, seedPartnerIdx } : {})
       })
+      // A newer submission has since taken over — this one's result no
+      // longer belongs on screen (see submissionSeq comment above). The run
+      // itself already completed/failed server-side and is in the Library
+      // regardless; there's just nothing left here to update.
+      if (submissionSeq.current !== mySeq) return
       if (res.ok && res.runId) {
         // If the tab is hidden, jumping to the Report would yank the user
         // out of whatever they're doing — stash it and show a banner here
@@ -215,14 +275,22 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
         } else {
           setFinishedRunId(res.runId)
         }
+      } else if (res.reason === 'canceled') {
+        // Canceled from the Library while still waiting in the queue — not a
+        // failure, so no red error callout.
+        setCanceledBanner(true)
       } else {
         setErrorMsg(res.reason ?? 'Analysis failed')
       }
     } catch (err) {
-      setErrorMsg(String(err))
+      if (submissionSeq.current === mySeq) setErrorMsg(String(err))
     } finally {
+      if (activeUnsubRef.current === unsubscribe) activeUnsubRef.current = null
       unsubscribe()
-      setRunning(false)
+      if (submissionSeq.current === mySeq) {
+        setRunning(false)
+        setPhase('idle')
+      }
     }
   }
 
@@ -233,8 +301,27 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   const stages = sortedStages(stageProgress)
   const seedStages = sortedStages(seedStageProgress)
 
-  const runDisabled =
-    !input || running || (crowdMode && (seedMeIdx == null || seedPartnerIdx == null))
+  // Submitting while busy now queues instead of being blocked — the Run
+  // button stays enabled while running (see submissionSeq above).
+  const runDisabled = !input || (crowdMode && (seedMeIdx == null || seedPartnerIdx == null))
+
+  const busyElsewhere = queueSnap ? queueSnap.active !== null || queueSnap.waiting.length > 0 : false
+  const runLabel = running
+    ? phase === 'running'
+      ? 'Running…'
+      : 'Queued…'
+    : busyElsewhere
+      ? 'Add to queue'
+      : 'Run analysis'
+  const queueSummary =
+    queueSnap && (queueSnap.active !== null || queueSnap.waiting.length > 0)
+      ? [
+          queueSnap.active !== null ? '1 running' : null,
+          queueSnap.waiting.length > 0 ? `${queueSnap.waiting.length} queued` : null
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : null
 
   return (
     <div>
@@ -242,6 +329,14 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
       <p className="muted">Run the analysis pipeline on a practice video.</p>
 
       <div className="card">
+        {/* Fields below stay editable while running/queued (v0.4.0 analyze
+            queue) — each submission captures its own option values at click
+            time, so preparing and submitting a second, different video while
+            an earlier one is still outstanding is the whole point of the
+            queue. Only the crowd-mode seed-picker stays gated on `running`
+            below — seed-preview isn't queued server-side (still busy-rejects,
+            see plan-0.4.0-structured-reports.md §6), so unlocking it would
+            just trade this lock for a confusing "busy" error instead. */}
         <VideoInput
           inputMode={inputMode}
           setInputMode={setInputMode}
@@ -249,7 +344,7 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
           onPickFile={pickFile}
           url={url}
           setUrl={setUrl}
-          disabled={running}
+          disabled={false}
         />
         {inputMode === 'url' && (
           <>
@@ -271,11 +366,7 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
           <label className="check-label">
             Your side
             <br />
-            <select
-              value={me}
-              disabled={running}
-              onChange={(e) => setMe(e.target.value as 'left' | 'right')}
-            >
+            <select value={me} onChange={(e) => setMe(e.target.value as 'left' | 'right')}>
               <option value="left">Left</option>
               <option value="right">Right</option>
             </select>
@@ -283,11 +374,7 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
           <label className="check-label">
             Your role
             <br />
-            <select
-              value={role}
-              disabled={running}
-              onChange={(e) => setRole(e.target.value as 'lead' | 'follow')}
-            >
+            <select value={role} onChange={(e) => setRole(e.target.value as 'lead' | 'follow')}>
               <option value="lead">Lead</option>
               <option value="follow">Follow</option>
             </select>
@@ -297,7 +384,6 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             <br />
             <select
               value={poseModel}
-              disabled={running}
               onChange={(e) => setPoseModel(e.target.value as AppConfig['poseModel'])}
             >
               <option value="n">n — fastest</option>
@@ -312,7 +398,6 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             <br />
             <input
               value={partnerName}
-              disabled={running}
               placeholder="optional"
               onChange={(e) => setPartnerName(e.target.value)}
             />
@@ -324,7 +409,6 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             <input
               type="checkbox"
               checked={partnerToggle}
-              disabled={running}
               onChange={(e) => setPartnerToggle(e.target.checked)}
             />{' '}
             Also analyze partner
@@ -333,7 +417,6 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             <input
               type="checkbox"
               checked={spotlight}
-              disabled={running}
               onChange={(e) => setSpotlight(e.target.checked)}
             />{' '}
             Spotlight
@@ -342,7 +425,7 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             <input
               type="checkbox"
               checked={comparePros && hasPros === true}
-              disabled={running || hasPros !== true}
+              disabled={hasPros !== true}
               onChange={(e) => setComparePros(e.target.checked)}
             />{' '}
             Compare to pros
@@ -359,7 +442,6 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             <input
               type="checkbox"
               checked={crowdMode}
-              disabled={running}
               onChange={(e) => setCrowdMode(e.target.checked)}
             />{' '}
             Crowded floor? Pick yourself out of a crowd shot
@@ -474,10 +556,18 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
 
         <div className="row" style={{ marginTop: 16 }}>
           <button className="btn-primary" disabled={runDisabled} onClick={run}>
-            {running ? 'Running…' : 'Run analysis'}
+            {runLabel}
           </button>
-          {running && <button onClick={cancel}>Cancel</button>}
+          {/* Cancel kills the currently-active engine process — only valid
+              while THIS submission is actually the one running, not while
+              it's merely queued behind something else. */}
+          {running && phase === 'running' && <button onClick={cancel}>Cancel</button>}
         </div>
+        {queueSummary && (
+          <p className="muted tiny" style={{ marginTop: 4 }}>
+            {queueSummary}
+          </p>
+        )}
       </div>
 
       {finishedRunId && (
@@ -495,6 +585,8 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
           </button>
         </div>
       )}
+
+      {canceledBanner && <div className="banner-info">Canceled from the queue.</div>}
 
       {errorMsg && (
         <div className="callout" style={{ borderColor: 'var(--loss-border)' }}>
