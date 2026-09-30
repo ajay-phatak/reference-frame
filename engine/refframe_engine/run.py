@@ -467,6 +467,14 @@ def _prepare_poses(video_path, out_dir, data_dir, pose_letter, refine_mode, seed
     else:
         need_extract = True
 
+    # Preflight (before any heavy work): make sure every model this run needs
+    # is present, fetched through setup_models' safe (atomic, size-checked)
+    # path — otherwise rtmlib / the vendored pose_lift would fetch RTMPose and
+    # VideoPose3D mid-run with unchecked downloads. Idempotent when present.
+    from . import setup_models
+    events.log("Checking model files …")
+    setup_models.ensure_all(data_dir, pose_letter, refine_mode, yolo=need_extract)
+
     if need_extract:
         weights = _weights_for(data_dir, pose_letter)
         why = "seeded re-extraction" if seed is not None else "pose extraction"

@@ -20,8 +20,10 @@ free tier can run without --compare-pros), 1 otherwise.
 """
 
 import os
+import zipfile
 
 from . import events, paths
+from .setup_models import RTMPOSE_ONNX_MIN_BYTES, VIDEOPOSE3D_MIN_BYTES
 
 
 def _check_data_dir(data_dir):
@@ -53,6 +55,17 @@ def _check_rtmpose(data_dir):
             files += [os.path.join(root, n) for n in names]
     if files:
         total = sum(os.path.getsize(f) for f in files)
+        bad = []
+        for f in files:
+            if f.endswith((".part", ".url")):
+                continue                        # in-flight / resume bookkeeping
+            if f.endswith(".zip") and not zipfile.is_zipfile(f):
+                bad.append(f"{os.path.basename(f)} (corrupt zip)")
+            elif f.endswith(".onnx") and os.path.getsize(f) < RTMPOSE_ONNX_MIN_BYTES:
+                bad.append(f"{os.path.basename(f)} (truncated)")
+        if bad:
+            return {"ok": False, "path": cache, "files": len(files), "size_bytes": total,
+                    "error": "corrupt or truncated: " + ", ".join(bad) + " — run setup"}
         return {"ok": True, "path": cache, "files": len(files), "size_bytes": total}
     return {"ok": False, "path": cache, "error": "empty — run setup",
             "note": "rtmlib may also use its default cache; setup verifies properly"}
@@ -62,7 +75,11 @@ def _check_videopose3d(data_dir):
     d = paths.videopose3d_dir(data_dir)
     ckpt = os.path.join(d, "pretrained_h36m_detectron_coco.bin")
     if os.path.exists(ckpt):
-        return {"ok": True, "path": ckpt, "size_bytes": os.path.getsize(ckpt)}
+        size = os.path.getsize(ckpt)
+        if size < VIDEOPOSE3D_MIN_BYTES:
+            return {"ok": False, "path": ckpt, "size_bytes": size,
+                    "error": "truncated download — run setup"}
+        return {"ok": True, "path": ckpt, "size_bytes": size}
     return {"ok": False, "path": ckpt, "error": "not downloaded — run setup"}
 
 
