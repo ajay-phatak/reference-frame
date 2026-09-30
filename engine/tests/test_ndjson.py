@@ -184,7 +184,8 @@ def test_analyze_weights_missing_code(ndjson_out, monkeypatch, tmp_path):
 
 
 def test_download_failure_code(ndjson_out, monkeypatch, tmp_path):
-    _stub_run(monkeypatch, RuntimeError("YouTube download failed: 403"))
+    from refframe_engine.download import DownloadError
+    _stub_run(monkeypatch, DownloadError("YouTube download failed: 403"))
     rc, objs = _run_cli(["analyze", "https://youtu.be/abcdefghijk",
                          "--out-dir", str(tmp_path), "--data-dir", str(tmp_path)],
                         ndjson_out)

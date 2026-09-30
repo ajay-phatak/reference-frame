@@ -21,29 +21,83 @@ imports, and a pose_lift.CHECKPOINT_DIR monkeypatch — all pointed under
 """
 
 import argparse
+import hashlib
+import json
 import os
 import sys
+import uuid
 
 from . import events, paths, stdio
+from .download import DownloadError
 
 COMMANDS = ("analyze", "seed-preview", "setup", "doctor", "export-baseline")
 
 
 # ── runtime environment setup ───────────────────────────────────────────────
 
+class DataDirError(Exception):
+    """--data-dir can't be created / written (mapped to `data_dir_unwritable`)."""
+
+
+def _disable_ultralytics_sync(config_dir, models_dir):
+    """Turn off ultralytics' anonymous analytics/sync. There is no env var for
+    it in ultralytics 8.4.x — it reads `sync` from
+    <YOLO_CONFIG_DIR>/Ultralytics/settings.json when first imported — so seed
+    that file BEFORE the vendored import chain runs. If the file exists and is
+    valid, flip only `sync`; if absent, write the full 0.0.6 schema (any
+    schema drift just makes ultralytics reset it, which is harmless)."""
+    sub = paths.ensure_dir(os.path.join(config_dir, "Ultralytics"))
+    f = os.path.join(sub, "settings.json")
+    try:
+        cfg = None
+        if os.path.exists(f):
+            with open(f, "r", encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        if isinstance(cfg, dict) and cfg:
+            if cfg.get("sync") is False:
+                return
+            cfg["sync"] = False
+        else:
+            cfg = {
+                "settings_version": "0.0.6",
+                "datasets_dir": os.path.join(models_dir, "datasets"),
+                "weights_dir": os.path.join(models_dir, "weights"),
+                "runs_dir": os.path.join(models_dir, "runs"),
+                "uuid": hashlib.sha256(str(uuid.getnode()).encode()).hexdigest(),
+                "sync": False, "api_key": "", "openai_api_key": "",
+                "clearml": True, "comet": True, "dvc": True, "hub": True,
+                "mlflow": True, "neptune": True, "raytune": True,
+                "tensorboard": False, "wandb": False,
+                "vscode_msg": True, "openvino_msg": True,
+            }
+        with open(f, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh, indent=2)
+    except (OSError, ValueError):
+        pass                                    # best effort; analytics stays default
+
+
 def _configure_env(data_dir):
     """Point model/cache dirs under --data-dir and make vendored imports work.
 
     Must run before importing any vendored module (they transitively import
-    ultralytics → torch and, via librosa, numba)."""
-    ucfg = paths.ensure_dir(paths.ultralytics_config_dir(data_dir))
-    ncache = paths.ensure_dir(paths.numba_cache_dir(data_dir))
-    mdir = paths.ensure_dir(paths.models_dir(data_dir))
+    ultralytics → torch and, via librosa, numba). Raises DataDirError when the
+    data dir isn't writable."""
+    try:
+        ucfg = paths.ensure_dir(paths.ultralytics_config_dir(data_dir))
+        ncache = paths.ensure_dir(paths.numba_cache_dir(data_dir))
+        mdir = paths.ensure_dir(paths.models_dir(data_dir))
+    except OSError as e:
+        raise DataDirError(f"Cannot create or write the data folder {data_dir}: {e}") from e
     os.environ["YOLO_CONFIG_DIR"] = ucfg
     os.environ["NUMBA_CACHE_DIR"] = ncache
-    # rtmlib / torch-hub honour XDG_CACHE_HOME on some platforms; harmless where
-    # ignored (Windows). Verified-cosmetic per the plan.
-    os.environ.setdefault("XDG_CACHE_HOME", mdir)
+    # rtmlib's cache is $TORCH_HOME/hub, with TORCH_HOME defaulting to
+    # $XDG_CACHE_HOME/rtmlib → <data-dir>/models/rtmlib/hub. ASSIGN (not
+    # setdefault) so an inherited value can't send caches outside --data-dir,
+    # and drop TORCH_HOME which would override it. doctor's rtmpose_cache
+    # (paths.rtmlib_cache_dir = <models>/rtmlib) walks this same tree.
+    os.environ["XDG_CACHE_HOME"] = mdir
+    os.environ.pop("TORCH_HOME", None)
+    _disable_ultralytics_sync(ucfg, mdir)
 
     pkg_dir = os.path.dirname(os.path.abspath(__file__))
     if pkg_dir not in sys.path:
@@ -148,12 +202,11 @@ def _cmd_analyze(args):
     except ValueError as ex:
         events.error(f"Invalid seed indices: {ex}", code="seed_idx_invalid")
         return 2
+    except DownloadError as ex:
+        events.error(str(ex), code="download_failed")
+        return 1
     except RuntimeError as ex:
-        msg = str(ex)
-        if "download" in msg.lower():
-            events.error(msg, code="download_failed")
-        else:
-            events.error(msg, code="extraction_failed")
+        events.error(str(ex), code="extraction_failed")
         return 1
     return 0
 
@@ -174,10 +227,11 @@ def _cmd_seed_preview(args):
     except FileNotFoundError as ex:
         events.error(f"File not found: {ex}", code="file_not_found")
         return 2
+    except DownloadError as ex:
+        events.error(str(ex), code="download_failed")
+        return 1
     except RuntimeError as ex:
-        msg = str(ex)
-        code = "download_failed" if "download" in msg.lower() else "extraction_failed"
-        events.error(msg, code=code)
+        events.error(str(ex), code="extraction_failed")
         return 1
     return 0
 
@@ -189,8 +243,13 @@ def _cmd_setup(args):
             _patch_checkpoint_dir(args.data_dir)
             setup_models.setup(args.data_dir, pose_letter=args.pose_model,
                                refine_mode=args.refine_mode)
-    except RuntimeError as ex:
+    except (DownloadError, RuntimeError) as ex:    # setup only downloads: any RuntimeError is one
         events.error(str(ex), code="download_failed")
+        return 1
+    except Exception as ex:                    # noqa: BLE001 — BadZipFile, shutil.Error, onnxruntime, …
+        events.error("Model setup failed. Try again; if it keeps failing, delete the "
+                     "models folder in the app data directory.",
+                     code="setup_failed", detail=f"{type(ex).__name__}: {ex}")
         return 1
     return 0
 
@@ -244,7 +303,6 @@ def main(argv=None):
     # env configuration and all path helpers agree on one location.
     data_dir = getattr(args, "data_dir", None)
     args.data_dir = paths.resolve_data_dir(data_dir)
-    _configure_env(args.data_dir)
 
     handler = _HANDLERS.get(args.command)
     if handler is None:
@@ -252,7 +310,11 @@ def main(argv=None):
         return 2
 
     try:
+        _configure_env(args.data_dir)
         return handler(args)
+    except DataDirError as ex:
+        events.error(str(ex), code="data_dir_unwritable", path=args.data_dir)
+        return 1
     except Exception as ex:                    # noqa: BLE001 — final safety net
         events.error(f"{type(ex).__name__}: {ex}", code="internal")
         return 1

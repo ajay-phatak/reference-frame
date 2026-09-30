@@ -11,6 +11,14 @@ import re
 
 from . import events
 
+
+
+class DownloadError(RuntimeError):
+    """Any failed model/video download. Subclasses RuntimeError so older
+    `except RuntimeError` handlers still catch it; cli.py maps it to the
+    `download_failed` error code by class, not by message text."""
+
+
 # Same stream selection the source _download_youtube used.
 _FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 
@@ -82,7 +90,7 @@ def download_youtube(url: str, out_dir: pathlib.Path):
         if isinstance(info, dict):
             title = info.get("title")
     except Exception as e:                       # noqa: BLE001 — surface as typed error upstream
-        raise RuntimeError(f"YouTube download failed: {e}") from e
+        raise DownloadError(f"YouTube download failed: {e}") from e
 
     if not mp4_path.exists():
         # yt-dlp may have produced a differently-suffixed container; take the
@@ -92,7 +100,7 @@ def download_youtube(url: str, out_dir: pathlib.Path):
         candidates = [c for c in candidates if c.suffix.lower() in (".mp4", ".mkv", ".webm")]
         if candidates:
             return candidates[0], title
-        raise RuntimeError("Download completed but no output file was found.")
+        raise DownloadError("Download completed but no output file was found.")
 
     events.log(f"Saved → {mp4_path.name}")
     return mp4_path, title
