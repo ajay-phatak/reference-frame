@@ -111,6 +111,7 @@ function runCli(
     let stderr = ''
     let buffer = ''
     let finalText: string | null = null
+    let resultError: string | null = null
     let streamedText = ''
 
     const finish = (r: CoachResult): void => {
@@ -167,21 +168,25 @@ function runCli(
           }
         } else if (j.type === 'result') {
           if (typeof j.session_id === 'string') sessionId = j.session_id
-          finalText = j.subtype === 'success' && typeof j.result === 'string' ? j.result : finalText
+          // Auth/plan failures arrive here (is_error, text in `result`) with
+          // an empty stderr — keep the text so close() can classify it.
+          if (j.is_error) resultError = typeof j.result === 'string' ? j.result : 'unknown error'
+          else if (j.subtype === 'success' && typeof j.result === 'string') finalText = j.result
         }
       }
     })
 
     child.on('close', (code) => {
       clearTimeout(timer)
-      if (code === 0 && (finalText !== null || streamedText)) {
+      const detail = (resultError ?? stderr).trim()
+      if (code === 0 && !resultError && (finalText !== null || streamedText)) {
         finish({ ok: true, text: finalText ?? streamedText })
-      } else if (/log ?in|authenticate|credentials|api key/i.test(stderr)) {
+      } else if (/log ?in|authenticate|credentials|api key/i.test(detail)) {
         finish({ ok: false, reason: 'cli_not_logged_in' })
       } else {
         finish({
           ok: false,
-          reason: `cli_failed: exit ${code}${stderr ? ` — ${stderr.trim().slice(0, 200)}` : ''}`
+          reason: `cli_failed: exit ${code}${detail ? ` — ${detail.slice(0, 200)}` : ''}`
         })
       }
     })
