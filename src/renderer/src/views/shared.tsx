@@ -13,6 +13,30 @@ export function roleNoun(role: 'lead' | 'follow'): string {
   return role === 'lead' ? 'leader' : 'follower'
 }
 
+// --- Load failure with retry (instead of an endless "Loading…") ---
+
+export function LoadError({
+  message,
+  onRetry,
+  onBack
+}: {
+  message: string
+  onRetry?: () => void
+  onBack?: () => void
+}): React.JSX.Element {
+  return (
+    <div>
+      {onBack && <button onClick={onBack}>← Library</button>}
+      <p className="neg">Couldn&apos;t load: {message}</p>
+      {onRetry && (
+        <button className="btn-sm" onClick={onRetry}>
+          Retry
+        </button>
+      )}
+    </div>
+  )
+}
+
 // --- Video file/URL input, with the app's selected-state highlight ---
 
 interface VideoInputProps {

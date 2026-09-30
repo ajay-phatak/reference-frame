@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppConfig, EngineEvent, QueueSnapshot, SeedDetection } from '../../../preload/index.d'
 import {
+  friendlyError,
+  isCanceledMessage,
   looksLikeYoutubeUrl,
   makeSeedBoxClickHandler,
   sortedStages,
-  type StageState
+  validatePicks
 } from './engineProgress'
 import { ProgressBlock, SeedPicker, VideoInput } from './shared'
+import { useEngineFeed } from './useEngineFeed'
 
 interface Props {
   config: AppConfig
@@ -24,12 +27,29 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   // just a sane starting point. Role defaults from the Settings/Onboarding
   // default; partner name is always per-run (J&J partners differ per clip).
   const [me, setMe] = useState<'left' | 'right'>('left')
-  const [role, setRole] = useState<'lead' | 'follow'>(config.role)
+  const [role, setRoleState] = useState<'lead' | 'follow'>(config.role)
   const [partnerName, setPartnerName] = useState('')
   const [partnerToggle, setPartnerToggle] = useState(false)
   const [spotlight, setSpotlight] = useState(false)
   const [comparePros, setComparePros] = useState(true)
-  const [poseModel, setPoseModel] = useState(config.poseModel)
+  const [poseModel, setPoseModelState] = useState(config.poseModel)
+  // Track whether the user changed role/poseModel in this form, so a changed
+  // default in Settings only overrides fields they haven't touched.
+  const roleEdited = useRef(false)
+  const poseEdited = useRef(false)
+  const setRole = (r: 'lead' | 'follow'): void => {
+    roleEdited.current = true
+    setRoleState(r)
+  }
+  const setPoseModel = (m: AppConfig['poseModel']): void => {
+    poseEdited.current = true
+    setPoseModelState(m)
+  }
+  useEffect(() => {
+    if (!active) return
+    if (!roleEdited.current) setRoleState(config.role)
+    if (!poseEdited.current) setPoseModelState(config.poseModel)
+  }, [active, config.role, config.poseModel])
 
   // Gap comparison needs at least one user-added pro (Pros tab) — with none
   // configured, force the toggle off and explain why instead of letting the
@@ -37,14 +57,26 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   // tab becomes active (not just on mount) — with keep-mounted views, adding
   // a pro in the Pros tab should immediately un-gate the toggle on return.
   const [hasPros, setHasPros] = useState<boolean | null>(null)
+  const [prosError, setProsError] = useState<string | null>(null)
   useEffect(() => {
     if (!active) return
-    window.api.prosList().then((list) => setHasPros(list.length > 0))
+    window.api
+      .prosList()
+      .then((list) => {
+        setHasPros(list.length > 0)
+        setProsError(null)
+      })
+      .catch((err) => {
+        setHasPros(false)
+        setProsError(friendlyError(err))
+      })
   }, [active])
 
   const [running, setRunning] = useState(false)
-  const [stageProgress, setStageProgress] = useState<Record<string, StageState>>({})
-  const [logs, setLogs] = useState<string[]>([])
+  // Progress/log state is buffered (see useEngineFeed) so a burst of engine
+  // events doesn't re-render this whole view per event.
+  const feed = useEngineFeed()
+  const seedFeed = useEngineFeed()
   const [showLog, setShowLog] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [canceledBanner, setCanceledBanner] = useState(false)
@@ -61,6 +93,7 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   // updating the visible progress panel).
   const submissionSeq = useRef(0)
   const activeUnsubRef = useRef<(() => void) | null>(null)
+  const inFlightRef = useRef<Set<string>>(new Set())
 
   // Queue state (v0.4.0 analyze queue): live snapshot of who's running/
   // waiting server-side, used for the queue-summary chip and to decide
@@ -73,7 +106,12 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   const [queueSnap, setQueueSnap] = useState<QueueSnapshot | null>(null)
   const [phase, setPhase] = useState<'idle' | 'queued' | 'running'>('idle')
   useEffect(() => {
-    window.api.queueList().then(setQueueSnap)
+    window.api
+      .queueList()
+      .then(setQueueSnap)
+      .catch(() => {
+        // Non-fatal: the queue chip just stays hidden until the next event.
+      })
     return window.api.onQueueEvent(setQueueSnap)
   }, [])
 
@@ -101,8 +139,6 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
   const [seedLoading, setSeedLoading] = useState(false)
   const [seedError, setSeedError] = useState<string | null>(null)
   const [seedImgNatural, setSeedImgNatural] = useState<{ w: number; h: number } | null>(null)
-  const [seedStageProgress, setSeedStageProgress] = useState<Record<string, StageState>>({})
-  const [seedLogs, setSeedLogs] = useState<string[]>([])
   const [seedShowLog, setSeedShowLog] = useState(false)
 
   // Nav dot: this view is "busy" while an analysis or its seed-preview is in
@@ -113,35 +149,53 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
 
   const pickFile = async (): Promise<void> => {
     const path = await window.api.pickVideoFile()
-    if (path) setFilePath(path)
+    if (path) {
+      setFilePath(path)
+      resetSeed()
+    }
   }
 
   const input = inputMode === 'file' ? filePath : url.trim()
+
+  // Everything derived from a seed-preview belongs to ONE video. When the
+  // input changes, drop it — otherwise `seedVideo ?? input` would silently
+  // analyze the previously previewed video.
+  // seedEpoch lets an in-flight seed-preview notice that the input changed
+  // under it and discard its (now stale) result.
+  const seedEpoch = useRef(0)
+  const resetSeed = (): void => {
+    seedEpoch.current++
+    setSeedRunId(null)
+    setSeedImage(null)
+    setSeedDets(null)
+    setSeedVideo(null)
+    setSeedFrameIdx(undefined)
+    setSeedTSec(undefined)
+    setSeedMeIdx(null)
+    setSeedPartnerIdx(null)
+    setSeedImgNatural(null)
+    setSeedError(null)
+    seedFeed.reset()
+  }
+  const changeInputMode = (m: 'file' | 'url'): void => {
+    setInputMode(m)
+    resetSeed()
+  }
+  const changeUrl = (u: string): void => {
+    setUrl(u)
+    resetSeed()
+  }
 
   const findUs = async (): Promise<void> => {
     if (!input || seedLoading) return
     setSeedLoading(true)
     setSeedError(null)
-    setSeedStageProgress({})
-    setSeedLogs([])
+    seedFeed.reset()
+    const epoch = seedEpoch.current
 
     const unsubscribe = window.api.onEngineEvent((e: EngineEvent) => {
-      if (e.event === 'progress' && typeof e.stage === 'string') {
-        const stage = e.stage
-        setSeedStageProgress((prev) => ({
-          ...prev,
-          [stage]: {
-            current: typeof e.current === 'number' ? e.current : 0,
-            total: typeof e.total === 'number' ? e.total : 0,
-            detail: typeof e.detail === 'string' ? e.detail : undefined,
-            startedAt: prev[stage]?.startedAt ?? Date.now()
-          }
-        }))
-      } else if (e.event === 'log') {
-        setSeedLogs((prev) => [...prev, String(e.msg ?? '')])
-      } else if (e.event === 'error') {
-        setSeedError(String(e.msg ?? 'Engine error'))
-      }
+      if (seedFeed.handle(e)) return
+      if (e.event === 'error') setSeedError(friendlyError(e.msg ?? 'Engine error'))
     })
 
     try {
@@ -157,6 +211,9 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
         comparePros: comparePros && hasPros === true,
         partnerName: partnerName.trim() || null
       })
+      // The user switched videos while this preview ran — its frame belongs
+      // to the old video, so discard it.
+      if (seedEpoch.current !== epoch) return
       if (res.ok) {
         setSeedRunId(res.runId ?? null)
         setSeedImage(res.image ?? null)
@@ -171,9 +228,10 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
         setSeedError(res.reason ?? 'Could not find dancers in this frame')
       }
     } catch (err) {
-      setSeedError(String(err))
+      if (seedEpoch.current === epoch) setSeedError(friendlyError(err))
     } finally {
       unsubscribe()
+      seedFeed.flush()
       setSeedLoading(false)
     }
   }
@@ -197,7 +255,25 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
 
   const run = async (): Promise<void> => {
     if (!input) return
-    if (crowdMode && (seedMeIdx == null || seedPartnerIdx == null)) return
+    if (crowdMode && validatePicks(seedMeIdx, seedPartnerIdx, seedDets) !== null) return
+
+    // Synchronous double-click guard: React state (running) updates too late
+    // to stop a second click in the same tick, and the button intentionally
+    // stays enabled so more videos can be queued. Ignore a submission whose
+    // exact inputs/options are already in flight.
+    const sig = JSON.stringify([
+      crowdMode ? (seedVideo ?? input) : input,
+      me,
+      role,
+      partnerToggle,
+      spotlight,
+      poseModel,
+      comparePros && hasPros === true,
+      partnerName.trim(),
+      crowdMode ? [seedRunId, seedMeIdx, seedPartnerIdx] : null
+    ])
+    if (inFlightRef.current.has(sig)) return
+    inFlightRef.current.add(sig)
 
     const mySeq = ++submissionSeq.current
     // engine:event is one shared channel; the main process stamps this
@@ -212,11 +288,12 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
     setRunning(true)
     setErrorMsg(null)
     setCanceledBanner(false)
-    setStageProgress({})
-    setLogs([])
+    feed.reset()
     setFinishedRunId(null)
     setPhase(
-      queueSnap && (queueSnap.active !== null || queueSnap.waiting.length > 0) ? 'queued' : 'running'
+      queueSnap && (queueSnap.active !== null || queueSnap.waiting.length > 0)
+        ? 'queued'
+        : 'running'
     )
 
     const unsubscribe = window.api.onEngineEvent((e: EngineEvent) => {
@@ -227,23 +304,11 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
       // RUNNING job's events also arrive here; without this check they'd
       // flip the label to "Running…" and paint the wrong run's stages.
       if (e.clientToken !== myToken) return
-      if (e.event === 'progress' && typeof e.stage === 'string') {
+      if (feed.handle(e)) {
         setPhase('running') // real engine output means it's actually our turn now
-        const stage = e.stage
-        setStageProgress((prev) => ({
-          ...prev,
-          [stage]: {
-            current: typeof e.current === 'number' ? e.current : 0,
-            total: typeof e.total === 'number' ? e.total : 0,
-            detail: typeof e.detail === 'string' ? e.detail : undefined,
-            startedAt: prev[stage]?.startedAt ?? Date.now()
-          }
-        }))
-      } else if (e.event === 'log') {
-        setPhase('running')
-        setLogs((prev) => [...prev, String(e.msg ?? '')])
       } else if (e.event === 'error') {
-        setErrorMsg(String(e.msg ?? 'Engine error'))
+        if (isCanceledMessage(e.msg)) setCanceledBanner(true)
+        else setErrorMsg(friendlyError(e.msg ?? 'Engine error'))
       }
     })
     activeUnsubRef.current = unsubscribe
@@ -275,18 +340,23 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
         } else {
           setFinishedRunId(res.runId)
         }
-      } else if (res.reason === 'canceled') {
+      } else if (isCanceledMessage(res.reason)) {
         // Canceled from the Library while still waiting in the queue — not a
         // failure, so no red error callout.
         setCanceledBanner(true)
       } else {
-        setErrorMsg(res.reason ?? 'Analysis failed')
+        setErrorMsg(friendlyError(res.reason ?? 'Analysis failed'))
       }
     } catch (err) {
-      if (submissionSeq.current === mySeq) setErrorMsg(String(err))
+      if (submissionSeq.current === mySeq) {
+        if (isCanceledMessage(friendlyError(err))) setCanceledBanner(true)
+        else setErrorMsg(friendlyError(err))
+      }
     } finally {
+      inFlightRef.current.delete(sig)
       if (activeUnsubRef.current === unsubscribe) activeUnsubRef.current = null
       unsubscribe()
+      feed.flush()
       if (submissionSeq.current === mySeq) {
         setRunning(false)
         setPhase('idle')
@@ -298,18 +368,21 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
     window.api.cancelAnalyze()
   }
 
-  const stages = sortedStages(stageProgress)
-  const seedStages = sortedStages(seedStageProgress)
+  const stages = sortedStages(feed.stageProgress)
+  const seedStages = sortedStages(seedFeed.stageProgress)
+  const picksProblem = validatePicks(seedMeIdx, seedPartnerIdx, seedDets)
 
   // Submitting while busy now queues instead of being blocked — the Run
   // button stays enabled while running (see submissionSeq above).
-  const runDisabled = !input || (crowdMode && (seedMeIdx == null || seedPartnerIdx == null))
+  const runDisabled = !input || (crowdMode && picksProblem !== null)
 
   // Seed-picking labels name the partner by their actual role — the role
   // selector tells us which one that is.
   const partnerWord = role === 'lead' ? 'follower' : 'leader'
 
-  const busyElsewhere = queueSnap ? queueSnap.active !== null || queueSnap.waiting.length > 0 : false
+  const busyElsewhere = queueSnap
+    ? queueSnap.active !== null || queueSnap.waiting.length > 0
+    : false
   const runLabel = running
     ? phase === 'running'
       ? 'Running…'
@@ -343,18 +416,17 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
             just trade this lock for a confusing "busy" error instead. */}
         <VideoInput
           inputMode={inputMode}
-          setInputMode={setInputMode}
+          setInputMode={changeInputMode}
           filePath={filePath}
           onPickFile={pickFile}
           url={url}
-          setUrl={setUrl}
+          setUrl={changeUrl}
           disabled={false}
         />
         {inputMode === 'url' && (
           <>
             <p className="muted tiny" style={{ marginTop: 4 }}>
-              Downloads in-process before analysis starts — not yet verified end-to-end, but the
-              engine supports it.
+              Downloads in-process before analysis starts.
             </p>
             {url.trim() && !looksLikeYoutubeUrl(url.trim()) && (
               <p className="tiny" style={{ color: 'var(--warning)', marginTop: 4 }}>
@@ -433,7 +505,13 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
               onChange={(e) => setComparePros(e.target.checked)}
             />{' '}
             Compare to pros
-            {hasPros === false && (
+            {prosError && (
+              <>
+                {' '}
+                <span className="neg tiny">— couldn&apos;t load pros: {prosError}</span>
+              </>
+            )}
+            {hasPros === false && !prosError && (
               <>
                 {' '}
                 <span className="muted tiny">
@@ -494,8 +572,8 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
               <div style={{ marginTop: 12 }}>
                 <ProgressBlock
                   stages={seedStages}
-                  stageProgress={seedStageProgress}
-                  logs={seedLogs}
+                  stageProgress={seedFeed.stageProgress}
+                  logs={seedFeed.logs}
                   showLog={seedShowLog}
                   onToggleLog={() => setSeedShowLog((v) => !v)}
                 />
@@ -549,9 +627,11 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
                   </button>
                 </div>
                 <p className="muted tiny" style={{ marginTop: 4 }}>
-                  {seedMeIdx != null && seedPartnerIdx != null
+                  {picksProblem === null
                     ? `You: #${seedMeIdx} · Your ${partnerWord}: #${seedPartnerIdx}`
-                    : `Click yourself, then your ${partnerWord}`}
+                    : seedMeIdx == null || seedPartnerIdx == null
+                      ? `Click yourself, then your ${partnerWord}`
+                      : picksProblem}
                 </p>
               </div>
             )}
@@ -603,8 +683,8 @@ function Analyze({ config, onAnalyzed, active, onBusyChange }: Props): React.JSX
           <h4>Progress</h4>
           <ProgressBlock
             stages={stages}
-            stageProgress={stageProgress}
-            logs={logs}
+            stageProgress={feed.stageProgress}
+            logs={feed.logs}
             showLog={showLog}
             onToggleLog={() => setShowLog((v) => !v)}
           />
