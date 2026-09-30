@@ -10,6 +10,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
 import { homedir } from 'os'
+import { killTree } from '../procutil'
 import coachSystemPrompt from '../../../prompts/coach-system.md?raw'
 import { buildAdvisePrompt, type AdviseInputs, type CoachModel, type CoachResult } from './client'
 
@@ -19,6 +20,10 @@ const TIMEOUT_MS = 5 * 60 * 1000 // reports can think for a while
 // mirroring the API backend.
 let sessionId: string | null = null
 let busy = false
+let activeChild: ReturnType<typeof spawn> | null = null
+
+/** Quit path: don't leave a Claude Code process (and its shell) running. */
+export const killActiveCli = (): void => killTree(activeChild)
 
 export const resetCliConversation = (): void => {
   sessionId = null
@@ -117,8 +122,12 @@ function runCli(
     }
 
     const child = spawn(cmd, { shell: true, cwd, env, windowsHide: true })
+    activeChild = child
+    child.on('close', () => {
+      if (activeChild === child) activeChild = null
+    })
     const timer = setTimeout(() => {
-      child.kill()
+      killTree(child)
       finish({ ok: false, reason: 'cli_timeout' })
     }, TIMEOUT_MS)
 
@@ -182,7 +191,7 @@ function runCli(
   })
 }
 
-/** Start a fresh CLI conversation and stream the coaching report. */
+/** Start a fresh CLI conversation and stream the Insights session review. */
 export function cliGenerateReport(
   inputs: AdviseInputs,
   model: CoachModel,
@@ -191,8 +200,8 @@ export function cliGenerateReport(
   if (busy) return Promise.resolve({ ok: false, reason: 'busy' })
   sessionId = null
   const prompt = [
-    '<coaching_instructions>\n' + coachSystemPrompt + '\n</coaching_instructions>',
-    'Follow the coaching instructions above for this whole conversation. Do not use any tools — everything you need is in this message.',
+    '<insights_instructions>\n' + coachSystemPrompt + '\n</insights_instructions>',
+    'Follow the instructions above for this whole conversation. Do not use any tools — everything you need is in this message.',
     buildAdvisePrompt(inputs)
   ].join('\n\n')
   return runCli(prompt, model, null, onDelta)

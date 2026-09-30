@@ -7,6 +7,7 @@ import icon from '../../resources/icon.png?asset'
 import { EngineJob, EngineEvent } from './engine'
 import { EngineQueue } from './queue'
 import { loadConfig, saveConfig, dataDir, AppConfig } from './config'
+import { isSafeId, sanitizeConfigPatch } from './ids'
 import * as library from './library'
 import type { RunOptions } from './library'
 import * as pros from './pros'
@@ -25,7 +26,8 @@ import {
   cliGenerateReport,
   cliChat,
   resetCliConversation,
-  hasCliConversation
+  hasCliConversation,
+  killActiveCli
 } from './coach/cli'
 import { renderPreviousFocuses, saveFocusGroup, readFocusGroups } from './coach/focuses'
 import { buildExcerpts } from './notes/excerpts'
@@ -79,8 +81,18 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    // https only — file:, custom-protocol and http: links never leave the app.
+    if (/^https:\/\//i.test(details.url)) shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // The window must never navigate away from the app itself (a dropped file
+  // or stray link would otherwise replace the UI). Dev HMR keeps its origin.
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    const devUrl = is.dev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+    if (devUrl && url.startsWith(new URL(devUrl).origin)) return
+    e.preventDefault()
+    if (/^https:\/\//i.test(url)) shell.openExternal(url)
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -132,7 +144,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('config:get', () => loadConfig())
-  ipcMain.handle('config:set', (_e, patch: Partial<AppConfig>) => saveConfig(patch))
+  ipcMain.handle('config:set', (_e, patch: Partial<AppConfig>) =>
+    saveConfig(sanitizeConfigPatch(patch))
+  )
 
   ipcMain.handle('video:pickFile', async () => {
     const r = await dialog.showOpenDialog({
@@ -146,6 +160,15 @@ app.whenReady().then(() => {
   // view disables the Run button while a job is in flight, this is the
   // server-side backstop.
   let activeJob: EngineJob | null = null
+  // Run currently owning the engine (analyze only) — lets engine:cancel
+  // target a specific run instead of whatever happens to be active.
+  let activeRunId: string | null = null
+  // Only clears the slot if it's still this job (pros:add swaps jobs mid-flow).
+  const clearActive = (j: EngineJob): void => {
+    if (activeJob === j) activeJob = null
+  }
+  let quitting = false
+  const INTERRUPTED = 'interrupted (app was closed)'
 
   // FIFO mutex serializing ALL engine work. engine:analyze queues instead of
   // rejecting when busy (v0.4.0 analyze queue); every other engine-invoking
@@ -156,15 +179,22 @@ app.whenReady().then(() => {
     BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('queue:event', snap))
   })
 
-  // A run left 'queued' when the app quit never got its turn — it's not
-  // resumable (the queue itself is in-memory), so mark it failed rather than
-  // leaving a phantom queued run in the Library forever. 'pending' orphans
-  // (mid-analysis at quit) are left alone — pre-existing, unrelated behavior.
-  for (const run of library.list(dataDir())) {
-    if (run.status === 'queued') {
-      library.failRun(dataDir(), run.runId, 'app closed before this run started')
-    }
+  // Nothing can be running at startup: any run still queued/pending/running
+  // is an orphan from a quit or crash (the queue is in-memory, not resumable).
+  library.sweepStale(dataDir())
+
+  // Quit: don't leave engine processes (or queued runs marked pending) behind.
+  // cancel() spawns taskkill and returns immediately, so this never blocks
+  // the quit; anything still stale is swept on the next launch.
+  const shutdownEngine = (): void => {
+    quitting = true
+    for (const id of queue.cancelAll()) library.failRun(dataDir(), id, INTERRUPTED)
+    if (activeRunId) library.failRun(dataDir(), activeRunId, INTERRUPTED)
+    activeJob?.cancel()
+    killActiveCli()
   }
+  app.on('before-quit', shutdownEngine)
+  app.on('will-quit', shutdownEngine)
 
   interface AnalyzeArgs {
     input: string
@@ -182,7 +212,32 @@ app.whenReady().then(() => {
     clientToken?: string | null
   }
 
+  // Identical input+options already queued/active -> reject rather than
+  // silently double-analyzing (double-click, re-submit after a slow start).
+  const inflight = new Set<string>()
   ipcMain.handle('engine:analyze', async (event, opts: AnalyzeArgs) => {
+    if (opts.runId && !isSafeId(opts.runId)) return { ok: false, reason: 'invalid run id' }
+    const { clientToken: _t, ...keyOpts } = opts
+    void _t
+    const key = JSON.stringify(keyOpts)
+    if (inflight.has(key)) {
+      return {
+        ok: false,
+        reason: 'This video with the same options is already queued or running.'
+      }
+    }
+    inflight.add(key)
+    try {
+      return await analyzeImpl(event, opts)
+    } finally {
+      inflight.delete(key)
+    }
+  })
+
+  async function analyzeImpl(
+    event: Electron.IpcMainInvokeEvent,
+    opts: AnalyzeArgs
+  ): Promise<Record<string, unknown>> {
     const runOptions: RunOptions = {
       me: opts.me,
       meId: opts.meId ?? null,
@@ -218,7 +273,15 @@ app.whenReady().then(() => {
       // marked the record via failRun, don't fail it a second time here.
       return { ok: false, runId, reason: 'canceled' }
     }
-    library.setStatus(dataDir(), runId, 'pending')
+    if (quitting) {
+      queue.release(runId)
+      return { ok: false, runId, reason: INTERRUPTED }
+    }
+    if (!library.setStatus(dataDir(), runId, 'pending')) {
+      // Deleted while waiting its turn — free the slot for the next run.
+      queue.release(runId)
+      return { ok: false, runId, reason: 'run was deleted' }
+    }
 
     const args = [
       'analyze',
@@ -249,12 +312,13 @@ app.whenReady().then(() => {
 
     const job = new EngineJob()
     activeJob = job
+    activeRunId = runId
     let resultEvent: EngineEvent | undefined
     let errorMsg: string | undefined
     try {
       const exitCode = await job.run(args, (e: EngineEvent) => {
         if (e.event === 'result') resultEvent = e
-        if (e.event === 'error' && typeof e.msg === 'string') errorMsg = e.msg
+        if (e.event === 'error' && typeof e.msg === 'string' && !errorMsg) errorMsg = e.msg
         // Stamp the caller's token so a renderer with several analyze
         // submissions in flight can tell whose progress this is —
         // engine:event is one shared channel (see EngineEvent.clientToken).
@@ -287,44 +351,88 @@ app.whenReady().then(() => {
           tracking: record?.coverage ?? null
         }
       }
-      const reason = errorMsg ?? `engine exited with code ${exitCode}`
+      const reason = job.canceled
+        ? quitting
+          ? INTERRUPTED
+          : 'canceled'
+        : (errorMsg ?? `engine exited with code ${exitCode}`)
       library.failRun(dataDir(), runId, reason)
       return { ok: false, runId, reason }
     } catch (err) {
-      const reason = String(err)
+      const reason = job.canceled ? 'canceled' : err instanceof Error ? err.message : String(err)
       library.failRun(dataDir(), runId, reason)
       return { ok: false, runId, reason }
     } finally {
-      activeJob = null
+      clearActive(job)
+      if (activeRunId === runId) activeRunId = null
       queue.release(runId)
     }
-  })
+  }
 
-  ipcMain.handle('engine:cancel', () => {
-    activeJob?.cancel()
-    return true
+  // With a runId: cancel exactly that run (active -> kill engine, queued ->
+  // drop from the queue). Without: cancel whatever engine job is active.
+  ipcMain.handle('engine:cancel', (_e, runId?: string) => {
+    if (runId === undefined || runId === null) {
+      activeJob?.cancel()
+      return true
+    }
+    if (!isSafeId(runId)) return false
+    if (runId === activeRunId) {
+      activeJob?.cancel()
+      return true
+    }
+    if (queue.cancel(runId)) {
+      library.failRun(dataDir(), runId, 'canceled')
+      return true
+    }
+    return false
   })
 
   ipcMain.handle('queue:list', () => queue.snapshot())
 
   ipcMain.handle('queue:cancel', (_e, runId: string) => {
-    if (queue.cancel(runId)) {
+    if (isSafeId(runId) && queue.cancel(runId)) {
       library.failRun(dataDir(), runId, 'canceled')
       return { ok: true }
     }
     return { ok: false, reason: 'not queued' }
   })
 
+  // Structured failure in the same shape as a normal doctor/setup result, so
+  // the renderer shows a message instead of an unhandled IPC rejection.
+  const engineFailure = (err: unknown): { exitCode: number; result: null; error: EngineEvent } => ({
+    exitCode: -1,
+    result: null,
+    error: {
+      event: 'error',
+      code: 'engine_failed',
+      msg: err instanceof Error ? err.message : String(err)
+    }
+  })
+
   ipcMain.handle('engine:doctor', async (event) => {
+    // Through the queue slot so it can't race an analyze; cancellable via
+    // engine:cancel (activeJob).
+    if (!queue.tryAcquire('doctor')) {
+      return engineFailure('The engine is busy — try again when the current job finishes.')
+    }
     let result: EngineEvent | null = null
     let error: EngineEvent | null = null
     const job = new EngineJob()
-    const exitCode = await job.run(['doctor', '--data-dir', dataDir()], (e: EngineEvent) => {
-      if (e.event === 'result') result = e
-      if (e.event === 'error') error = e
-      event.sender.send('engine:event', e)
-    })
-    return { exitCode, result, error }
+    activeJob = job
+    try {
+      const exitCode = await job.run(['doctor', '--data-dir', dataDir()], (e: EngineEvent) => {
+        if (e.event === 'result') result = e
+        if (e.event === 'error' && !error) error = e
+        event.sender.send('engine:event', e)
+      })
+      return { exitCode, result, error }
+    } catch (err) {
+      return engineFailure(err)
+    } finally {
+      clearActive(job)
+      queue.release('doctor')
+    }
   })
 
   ipcMain.handle('engine:setup', async (event, opts: { poseModel: string }) => {
@@ -339,13 +447,15 @@ app.whenReady().then(() => {
         ['setup', '--data-dir', dataDir(), '--pose-model', opts.poseModel],
         (e: EngineEvent) => {
           if (e.event === 'result') result = e
-          if (e.event === 'error') error = e
+          if (e.event === 'error' && !error) error = e
           event.sender.send('engine:event', e)
         }
       )
       return { exitCode, result, error }
+    } catch (err) {
+      return engineFailure(err)
     } finally {
-      activeJob = null
+      clearActive(job)
       queue.release('setup')
     }
   })
@@ -364,6 +474,7 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('engine:seedPreview', async (event, opts: SeedPreviewArgs) => {
+    if (opts.runId && !isSafeId(opts.runId)) return { ok: false, reason: 'invalid run id' }
     if (!queue.tryAcquire('seed-preview')) return { ok: false, reason: 'busy' }
 
     let runId: string
@@ -411,7 +522,7 @@ app.whenReady().then(() => {
     try {
       const exitCode = await job.run(args, (e: EngineEvent) => {
         if (e.event === 'result') resultEvent = e
-        if (e.event === 'error' && typeof e.msg === 'string') errorMsg = e.msg
+        if (e.event === 'error' && typeof e.msg === 'string' && !errorMsg) errorMsg = e.msg
         event.sender.send('engine:event', e)
       })
       if (exitCode === 0 && resultEvent && resultEvent.kind === 'seed_preview') {
@@ -432,21 +543,30 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, runId, reason: String(err) }
     } finally {
-      activeJob = null
+      clearActive(job)
       queue.release('seed-preview')
     }
   })
 
   ipcMain.handle('library:list', () => library.list(dataDir()))
-  ipcMain.handle('library:get', (_e, runId: string) => library.get(dataDir(), runId))
+  ipcMain.handle('library:get', (_e, runId: string) =>
+    isSafeId(runId) ? library.get(dataDir(), runId) : null
+  )
   ipcMain.handle('library:metrics', (_e, runId: string): MetricsSummary | null => {
+    if (!isSafeId(runId)) return null
     const metricsPath = library.get(dataDir(), runId)?.run.resultPaths.metricsPath
     return metricsPath ? readMetrics(metricsPath) : null
   })
-  ipcMain.handle('library:delete', (_e, runId: string) => ({
-    ok: library.remove(dataDir(), runId)
-  }))
+  ipcMain.handle('library:delete', (_e, runId: string) => {
+    if (!isSafeId(runId)) return { ok: false, reason: 'invalid run id' }
+    const snap = queue.snapshot()
+    if (runId === activeRunId || snap.active === runId || snap.waiting.includes(runId)) {
+      return { ok: false, reason: 'This run is queued or running — cancel it first.' }
+    }
+    return { ok: library.remove(dataDir(), runId) }
+  })
   ipcMain.handle('library:openFolder', async (_e, runId: string) => {
+    if (!isSafeId(runId)) return { ok: false }
     const dir = library.runDirPath(dataDir(), runId)
     const err = await shell.openPath(dir)
     return { ok: err === '' }
@@ -463,7 +583,7 @@ app.whenReady().then(() => {
   // ------------------------------------------------------------------------
 
   ipcMain.handle('pros:list', () => pros.list())
-  ipcMain.handle('pros:remove', (_e, id: string) => ({ ok: pros.remove(id) }))
+  ipcMain.handle('pros:remove', (_e, id: string) => ({ ok: isSafeId(id) && pros.remove(id) }))
 
   function prosWorkDir(jobId: string): string {
     return join(dataDir(), 'pros_work', jobId)
@@ -477,6 +597,7 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('pros:seedPreview', async (event, opts: ProSeedPreviewArgs) => {
+    if (opts.jobId && !isSafeId(opts.jobId)) return { ok: false, reason: 'invalid job id' }
     if (!queue.tryAcquire('pros-seed-preview')) return { ok: false, reason: 'busy' }
 
     const jobId = opts.jobId ?? randomUUID()
@@ -502,7 +623,7 @@ app.whenReady().then(() => {
     try {
       const exitCode = await job.run(args, (e: EngineEvent) => {
         if (e.event === 'result') resultEvent = e
-        if (e.event === 'error' && typeof e.msg === 'string') errorMsg = e.msg
+        if (e.event === 'error' && typeof e.msg === 'string' && !errorMsg) errorMsg = e.msg
         event.sender.send('pros:event', e)
       })
       if (exitCode === 0 && resultEvent && resultEvent.kind === 'seed_preview') {
@@ -523,7 +644,7 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, jobId, reason: String(err) }
     } finally {
-      activeJob = null
+      clearActive(job)
       queue.release('pros-seed-preview')
     }
   })
@@ -541,6 +662,7 @@ app.whenReady().then(() => {
   ipcMain.handle('pros:add', async (event, opts: AddProArgs) => {
     // One ticket held across BOTH engine invocations below (analyze then
     // export-baseline) — this is a single logical job from the queue's POV.
+    if (!isSafeId(opts.jobId)) return { ok: false, reason: 'invalid job id' }
     if (!queue.tryAcquire('pros-add')) return { ok: false, reason: 'busy' }
 
     const dir = prosWorkDir(opts.jobId)
@@ -578,17 +700,24 @@ app.whenReady().then(() => {
     // never itself compared against the pro library.
 
     const analyzeJob = new EngineJob()
+    let exportJobRef: EngineJob | null = null
     activeJob = analyzeJob
     let analyzeResult: EngineEvent | undefined
     let analyzeErrorMsg: string | undefined
     try {
       const analyzeExit = await analyzeJob.run(analyzeArgs, (e: EngineEvent) => {
         if (e.event === 'result') analyzeResult = e
-        if (e.event === 'error' && typeof e.msg === 'string') analyzeErrorMsg = e.msg
+        if (e.event === 'error' && typeof e.msg === 'string' && !analyzeErrorMsg)
+          analyzeErrorMsg = e.msg
         event.sender.send('pros:event', e)
       })
       if (analyzeExit !== 0 || !analyzeResult || analyzeResult.kind !== 'analysis') {
-        return { ok: false, reason: analyzeErrorMsg ?? `engine exited with code ${analyzeExit}` }
+        return {
+          ok: false,
+          reason: analyzeJob.canceled
+            ? 'canceled'
+            : (analyzeErrorMsg ?? `engine exited with code ${analyzeExit}`)
+        }
       }
 
       const posesPath = String(analyzeResult.poses_path)
@@ -612,13 +741,16 @@ app.whenReady().then(() => {
         outPath
       ]
 
+      if (analyzeJob.canceled) return { ok: false, reason: 'canceled' }
       const exportJob = new EngineJob()
       activeJob = exportJob
+      exportJobRef = exportJob
       let exportResult: EngineEvent | undefined
       let exportErrorMsg: string | undefined
       const exportExit = await exportJob.run(exportArgs, (e: EngineEvent) => {
         if (e.event === 'result') exportResult = e
-        if (e.event === 'error' && typeof e.msg === 'string') exportErrorMsg = e.msg
+        if (e.event === 'error' && typeof e.msg === 'string' && !exportErrorMsg)
+          exportErrorMsg = e.msg
         event.sender.send('pros:event', e)
       })
       if (
@@ -639,7 +771,8 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, reason: String(err) }
     } finally {
-      activeJob = null
+      clearActive(analyzeJob)
+      if (exportJobRef) clearActive(exportJobRef)
       queue.release('pros-add')
     }
   })
@@ -686,6 +819,7 @@ app.whenReady().then(() => {
   // Coaching report on a library run. Deltas stream over coach:delta; the
   // invoke resolves with the final prose + parsed gaps + usage/cost.
   ipcMain.handle('coach:report', async (event, runId: string) => {
+    if (!isSafeId(runId)) return { ok: false, reason: 'run_not_found' }
     const detail = library.get(dataDir(), runId)
     if (!detail) return { ok: false, reason: 'run_not_found' }
     if (!detail.reportText) return { ok: false, reason: 'no_report' }

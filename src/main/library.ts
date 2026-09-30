@@ -1,13 +1,7 @@
 import { join, basename, extname } from 'path'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  rmSync,
-  statSync
-} from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'fs'
+import { randomBytes } from 'crypto'
+import { writeFileAtomic } from './fsutil'
 
 export interface RunOptions {
   me: 'left' | 'right'
@@ -77,7 +71,8 @@ function stemFromInput(input: string): string {
 }
 
 export function makeRunId(input: string, at = new Date()): string {
-  return `${timestamp(at)}-${slug(stemFromInput(input))}`
+  // Random suffix: two same-second runs of the same video must not collide.
+  return `${timestamp(at)}-${slug(stemFromInput(input))}-${randomBytes(3).toString('hex')}`
 }
 
 function libraryDir(dataDir: string): string {
@@ -93,7 +88,7 @@ function runJsonPath(dataDir: string, runId: string): string {
 }
 
 function writeRun(dataDir: string, record: RunRecord): void {
-  writeFileSync(runJsonPath(dataDir, record.runId), JSON.stringify(record, null, 2))
+  writeFileAtomic(runJsonPath(dataDir, record.runId), JSON.stringify(record, null, 2))
 }
 
 export function readRun(dataDir: string, runId: string): RunRecord | null {
@@ -231,15 +226,36 @@ export function failRun(dataDir: string, runId: string, reason: string): RunReco
   return record
 }
 
+// Startup sweep: nothing can be running when the app has just launched, so any
+// run still queued/pending/running is an orphan from a quit or crash.
+export function sweepStale(dataDir: string): number {
+  let n = 0
+  for (const run of list(dataDir)) {
+    if (
+      (run.status as string) === 'queued' ||
+      run.status === 'pending' ||
+      (run.status as string) === 'running'
+    ) {
+      failRun(dataDir, run.runId, 'interrupted (app was closed)')
+      n++
+    }
+  }
+  return n
+}
+
 // Newest-first.
 export function list(dataDir: string): RunRecord[] {
   const dir = libraryDir(dataDir)
   if (!existsSync(dir)) return []
   const entries: RunRecord[] = []
   for (const name of readdirSync(dir)) {
-    if (!statSync(join(dir, name)).isDirectory()) continue
-    const record = readRun(dataDir, name)
-    if (record) entries.push(record)
+    try {
+      if (!statSync(join(dir, name)).isDirectory()) continue
+      const record = readRun(dataDir, name)
+      if (record) entries.push(record)
+    } catch {
+      // one unreadable entry must not break the whole Library list
+    }
   }
   return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }

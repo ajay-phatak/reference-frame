@@ -6,7 +6,8 @@
 
 import { app, safeStorage } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'fs'
+import { readFileSync, rmSync, mkdirSync } from 'fs'
+import { writeFileAtomic } from '../fsutil'
 
 const keyPath = (): string => join(app.getPath('userData'), 'coach.key')
 
@@ -22,7 +23,7 @@ export function setKey(key: string): { ok: boolean; reason?: string } {
     return { ok: false, reason: 'encryption_unavailable' }
   }
   mkdirSync(app.getPath('userData'), { recursive: true })
-  writeFileSync(keyPath(), safeStorage.encryptString(trimmed).toString('base64'))
+  writeFileAtomic(keyPath(), safeStorage.encryptString(trimmed).toString('base64'))
   return { ok: true }
 }
 

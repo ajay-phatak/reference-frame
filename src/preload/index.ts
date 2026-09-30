@@ -38,7 +38,7 @@ const api: ReferenceFrameApi = {
   pickVideoFile: (): Promise<string | null> => ipcRenderer.invoke('video:pickFile'),
   analyze: (opts: AnalyzeOptions): Promise<AnalyzeResult> =>
     ipcRenderer.invoke('engine:analyze', opts),
-  cancelAnalyze: (): Promise<boolean> => ipcRenderer.invoke('engine:cancel'),
+  cancelAnalyze: (runId?: string): Promise<boolean> => ipcRenderer.invoke('engine:cancel', runId),
   doctor: (): Promise<DoctorResult> => ipcRenderer.invoke('engine:doctor'),
   setupModels: (opts: { poseModel: AppConfig['poseModel'] }): Promise<SetupResult> =>
     ipcRenderer.invoke('engine:setup', opts),
@@ -47,7 +47,7 @@ const api: ReferenceFrameApi = {
   libraryList: (): Promise<RunRecord[]> => ipcRenderer.invoke('library:list'),
   libraryGet: (runId: string): Promise<RunDetail | null> =>
     ipcRenderer.invoke('library:get', runId),
-  libraryDelete: (runId: string): Promise<{ ok: boolean }> =>
+  libraryDelete: (runId: string): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke('library:delete', runId),
   libraryOpenFolder: (runId: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('library:openFolder', runId),
