@@ -20,8 +20,17 @@ class DownloadError(RuntimeError):
     `download_failed` error code by class, not by message text."""
 
 
-# Same stream selection the source _download_youtube used.
-_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+# Capped at 1080p, H.264 preferred. The source used an uncapped
+# "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", which was fine
+# while yt-dlp's no-JS fallback clients topped out lower — with a JS runtime
+# YouTube offers 2160p AV1, and software-decoding that twice (extract +
+# refine) turned a 3-minute pro video into a 1h+ job. Pose models downscale
+# anyway, so >1080p buys nothing.
+_FORMAT = (
+    "bestvideo[ext=mp4][vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]"
+    "/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]"
+    "/best[ext=mp4][height<=1080]/best[height<=1080]/best"
+)
 
 
 def _stem_for(url: str) -> str:
