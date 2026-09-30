@@ -45,6 +45,9 @@ dependencies = [
     # unaffected; bump it freely whenever downloads break. Note 2026.4+
     # prefers an external JS runtime (deno) for full format coverage; without
     # one it falls back to a non-JS client, which currently works fine.
+    # yt-dlp-ejs: the JS challenge solver scripts YouTube now requires; run by an
+    # external JS runtime (the app passes its own Electron binary via --node-path).
+    "yt-dlp-ejs==0.8.0",           # must match what yt-dlp 2026.8.19 expects
     "yt-dlp==2026.8.19",           # YouTube / video download (used in-process, not subprocess)
 ]
 

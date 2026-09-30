@@ -92,6 +92,9 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
 - yt-dlp cannot be shelled out to (`[sys.executable, -m yt_dlp]` is
   impossible frozen) — it runs in-process via the `yt_dlp.YoutubeDL` API
   with `ffmpeg_location` from `imageio_ffmpeg`.
+- yt-dlp's JS runtime (YouTube EJS) is the app's own Electron binary: main passes
+  `--node-path process.execPath` and download.py sets `ELECTRON_RUN_AS_NODE=1`.
+  Don't enable an Electron fuse that disables RunAsNode.
 - Biggest PyInstaller risk is librosa → numba/llvmlite; keep the frozen
   `beat_track` smoke test working.
 - Runtime env for the frozen engine: `YOLO_CONFIG_DIR`, `NUMBA_CACHE_DIR`

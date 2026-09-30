@@ -290,6 +290,8 @@ app.whenReady().then(() => {
       dir,
       '--data-dir',
       dataDir(),
+      '--node-path',
+      process.execPath,
       '--me',
       opts.me,
       '--role',
@@ -511,6 +513,8 @@ app.whenReady().then(() => {
       dir,
       '--data-dir',
       dataDir(),
+      '--node-path',
+      process.execPath,
       '--pose-model',
       opts.poseModel
     ]
@@ -612,6 +616,8 @@ app.whenReady().then(() => {
       dir,
       '--data-dir',
       dataDir(),
+      '--node-path',
+      process.execPath,
       '--pose-model',
       opts.poseModel
     ]
@@ -685,6 +691,8 @@ app.whenReady().then(() => {
       dir,
       '--data-dir',
       dataDir(),
+      '--node-path',
+      process.execPath,
       '--me',
       'left',
       '--role',

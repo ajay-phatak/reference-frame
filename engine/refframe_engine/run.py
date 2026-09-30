@@ -353,7 +353,7 @@ def _weights_for(data_dir, pose_letter):
     return abspath
 
 
-def resolve_input(input_str, out_dir, data_dir):
+def resolve_input(input_str, out_dir, data_dir, node_path=None):
     """Resolve a path-or-URL to a local video Path (downloading if a URL).
 
     Returns (video_path, is_url, video_title). video_title is the YouTube
@@ -367,7 +367,8 @@ def resolve_input(input_str, out_dir, data_dir):
     video_title = None
     if is_url:
         from . import download
-        video_path, video_title = download.download_youtube(input_str, pathlib.Path(out_dir))
+        video_path, video_title = download.download_youtube(input_str, pathlib.Path(out_dir),
+                                                              node_path=node_path)
     else:
         video_path = pathlib.Path(input_str)
         if not video_path.exists():
@@ -556,7 +557,7 @@ def _load_pro_metrics(entry: dict, manifest_dir):
 def analyze(input_str, out_dir, data_dir, *, me="left", me_id=None, role="lead",
             partner=False, spotlight=False, pose_model="m", refine_mode="balanced",
             seed_me_idx=None, seed_partner_idx=None, compare_pros=False,
-            pro_refs=None):
+            pro_refs=None, node_path=None):
     """Full analysis pipeline. Mirrors analyze.py main() for the report path so the
     `<stem>_report.txt` stays byte-identical (outside NDJSON mode) on a refined+
     lifted cache. Emits progress per stage and a final result event kind "analysis".
@@ -568,7 +569,8 @@ def analyze(input_str, out_dir, data_dir, *, me="left", me_id=None, role="lead",
     # ── step 1: resolve input to a local video file ─────────────────────────
     if input_str.startswith("http://") or input_str.startswith("https://"):
         events.progress("download", 0, 1)
-    video_path, _is_url, video_title = resolve_input(input_str, out_dir, data_dir)
+    video_path, _is_url, video_title = resolve_input(input_str, out_dir, data_dir,
+                                                  node_path=node_path)
 
     stem = video_path.stem
 
