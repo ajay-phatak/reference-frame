@@ -32,8 +32,7 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
   and arg-driven — config lives only in the app. Multi-step flows (e.g. seed
   picking) are TWO invocations, never one long-lived process.
 - Without `--ndjson` the engine keeps its original human CLI behavior — keep
-  it that way; it's how engine changes get golden-diffed against the source
-  pipeline.
+  it that way; it's how engine changes get golden-diffed (see below).
 - The engine is VENDORED from the private pipeline at
   `C:\Users\wizar\Projects\Dance Analysis`. Vendoring contract:
   - `dance_metrics.py`, `dance_review.py`, `videopose3d_model.py`,
@@ -41,9 +40,21 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
     CHECKPOINT_DIR is monkeypatched from cli.py, never edited in-file).
   - `pose_extraction.py`, `pose_refine.py` carry exactly one additive
     `progress_cb=None` kwarg each — the only allowed deviation.
-  - When engine analysis behavior changes, verify with a golden diff: run
-    the source pipeline and the vendored engine on the same video with
-    identical flags; the report txt must stay byte-identical.
+  - Golden diffs (human CLI mode, fresh out-dirs so no poses cache is
+    reused, a temp `--data-dir` holding a copy of the models):
+    1. Did a change alter results? Run the engine BEFORE (git worktree of
+       the base commit, same `engine/.venv` via PYTHONPATH) and AFTER, end
+       to end on the same video with identical flags. Report txt must be
+       byte-identical; poses json may differ only in the `model` path.
+    2. Has the vendored code drifted from the source? Feed the SAME
+       pass-1 poses file to both sides; report must be byte-identical.
+       Source vs engine end to end is NOT byte-identical and never will
+       be: the engine hands pass-1 to refine in memory, the source
+       round-trips it through its json cache (8 sig. digits, float64),
+       which shifts a few RTMPose crops (e.g. 169 vs 170 steps). The source
+       has no single end-to-end script — `wcs-analyze-skill/scripts/
+       analyze.py` (pass 1 / report), then pose_refine + pose_lift as in
+       `reextract_all.py`. Verified this way for v0.4.1 on 2026-09-30.
 - Pro baselines are precomputed METRICS JSON (KB-scale) — never pro videos
   or pose files. They are USER-SUPPLIED (0.2.0+): the app manages
   `userData/pro_baselines/` (manifest + metrics files, `src/main/pros.ts`)
