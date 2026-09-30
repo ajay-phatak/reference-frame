@@ -1,6 +1,6 @@
 # Reference Frame
 
-**See your dancing the way a coach would.** Reference Frame is a desktop app for West Coast Swing dancers that analyzes your practice or competition videos — pose extraction, 3D motion reconstruction, and movement metrics — and shows you exactly where your dancing diverges from a library of pro baselines. Point it at a local video file or a YouTube link; get a report with objective numbers (frame, connection, floor use, timing) and a gap analysis against the pros, plus an optional AI coach that reads the report and gives you a written coaching take.
+**See your dancing in numbers — and bring better questions to your lessons.** Reference Frame is a desktop app for West Coast Swing dancers that analyzes your practice or competition videos — pose extraction, 3D motion reconstruction, and movement metrics — and shows you exactly where your dancing diverges from a library of pro baselines. Point it at a local video file or a YouTube link; get a report with objective numbers (frame, connection, floor use, timing) and a gap analysis against the pros, plus optional AI Insights that explain what the numbers show in plain terms and help you turn them into questions for your teacher.
 
 ## Download
 
@@ -27,10 +27,10 @@ On first launch, onboarding asks for your name and your default role (lead/follo
 - **Report + gap analysis vs. pros.** Every run produces a report of your movement metrics alongside a comparison against bundled pro baselines, so you can see specific, numeric gaps rather than vague notes.
 - **Library.** Every analyzed run is saved locally with its report, status, and options, so you can revisit past sessions.
 - **Swap dancers.** If the analysis picked up the wrong person as "you," re-run against the other detected dancer without redoing pose extraction from scratch.
-- **AI coach (optional).** Generate a written coaching read on any analyzed run, then chat about the details. Two backends:
+- **Insights (optional, AI).** Get a plain-language read of what the numbers on any analyzed run show, plus draft questions to take to your teacher, then chat about the details. Insights describe and ask — they don't prescribe drills or fixes, and they're not a replacement for lessons or coaching. Two backends:
   - **Anthropic API key** — bring your own key, stored encrypted via your OS's secure storage (DPAPI on Windows, Keychain on macOS; never in plaintext config); you pay Anthropic directly, a report costs a few cents.
-  - **Local Claude Code CLI** — if you have Claude Code installed and logged into a Pro/Max plan, the coach runs through it instead, billed against your existing plan with no API key needed.
-- **Practice notes (optional).** Point Settings at a folder of your own markdown lesson notes and the coach will cite relevant bullets from your own instructors when discussing a gap — it's read-only, nothing is written there.
+  - **Local Claude Code CLI** — if you have Claude Code installed and logged into a Pro/Max plan, Insights run through it instead, billed against your existing plan with no API key needed.
+- **Practice notes (optional).** Point Settings at a folder of your own markdown lesson notes and Insights will cite relevant bullets from your own instructors when discussing a gap. Reading is automatic; writing session summaries back into the folder is a separate opt-in toggle.
 
 ## Expectations
 

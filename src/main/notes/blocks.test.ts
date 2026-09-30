@@ -149,15 +149,15 @@ describe('renderCoachBlock', () => {
       { gap: 'Standing-leg load', evidence: 'p90 knee flex 37 vs pro 106', suggestion: 'Drill sinking into the weighted leg.' }
     ]
     const out = renderCoachBlock({ date: '2026-07-16', prose: 'Framing is healthy overall.', gaps })
-    expect(out).toContain("## Coach's read (2026-07-16)")
+    expect(out).toContain('## Insights (2026-07-16)')
     expect(out).toContain('Framing is healthy overall.')
-    expect(out).toContain('### Suggested focuses')
+    expect(out).toContain('### Questions to bring to a lesson')
     expect(out).toContain('- **Standing-leg load** — Drill sinking into the weighted leg.')
   })
 
   it('omits the suggested-focuses section when there are no gaps', () => {
     const out = renderCoachBlock({ date: '2026-07-16', prose: 'All good.', gaps: [] })
-    expect(out).not.toContain('### Suggested focuses')
+    expect(out).not.toContain('### Questions to bring to a lesson')
   })
 })
 
