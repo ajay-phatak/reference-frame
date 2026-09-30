@@ -29,7 +29,7 @@ On first launch, onboarding asks for your name and your default role (lead/follo
 - **Swap dancers.** If the analysis picked up the wrong person as "you," re-run against the other detected dancer without redoing pose extraction from scratch.
 - **Insights (optional, AI).** Get a plain-language read of what the numbers on any analyzed run show, plus draft questions to take to your teacher, then chat about the details. Insights describe and ask — they don't prescribe drills or fixes, and they're not a replacement for lessons or coaching. Two backends:
   - **Anthropic API key** — bring your own key, stored encrypted via your OS's secure storage (DPAPI on Windows, Keychain on macOS; never in plaintext config); you pay Anthropic directly, a report costs a few cents.
-  - **Local Claude Code CLI** — if you have Claude Code installed and logged into a Pro/Max plan, Insights run through it instead, billed against your existing plan with no API key needed.
+  - **Local Claude Code CLI** — if you have Claude Code installed and logged into a Pro/Max plan, Insights run through it instead, billed against your existing plan with no API key needed. To log in, run `claude` in a terminal and type `/login`. On Windows, if PowerShell says `claude` isn't recognized, run it by its full path instead: `& "$env:USERPROFILE\.local\bin\claude.exe"` (the app finds it there on its own).
 - **Practice notes (optional).** Point Settings at a folder of your own markdown lesson notes and Insights will cite relevant bullets from your own instructors when discussing a gap. Reading is automatic; writing session summaries back into the folder is a separate opt-in toggle.
 
 ## Expectations
