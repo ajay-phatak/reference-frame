@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { AppConfig, UpdateCheck } from '../../preload/index.d'
 import Analyze from './views/Analyze'
 import Coach from './views/Coach'
@@ -8,6 +8,7 @@ import Onboarding from './views/Onboarding'
 import Pros from './views/Pros'
 import Report from './views/Report'
 import Settings from './views/Settings'
+import { friendlyError } from './views/engineProgress'
 
 const VIEWS = ['Analyze', 'Library', 'Pros', 'Coach', 'Settings'] as const
 type View = (typeof VIEWS)[number]
@@ -22,12 +23,24 @@ function App(): React.JSX.Element {
   const [analyzeBusy, setAnalyzeBusy] = useState(false)
   const [prosBusy, setProsBusy] = useState(false)
 
-  useEffect(() => {
-    window.api.checkUpdate().then((u) => {
-      if (u.newer) setUpdate(u)
-    })
-    window.api.getConfig().then(setConfig)
+  const [configError, setConfigError] = useState<string | null>(null)
+  const loadConfig = useCallback((): void => {
+    window.api
+      .getConfig()
+      .then(setConfig)
+      .catch((err) => setConfigError(friendlyError(err)))
   }, [])
+
+  useEffect(() => {
+    // Update check is best-effort — a network failure must never surface.
+    window.api
+      .checkUpdate()
+      .then((u) => {
+        if (u.newer) setUpdate(u)
+      })
+      .catch(() => {})
+    loadConfig()
+  }, [loadConfig])
 
   // Analyze success and Library card clicks both land here; the Report view
   // is reached through Library rather than being its own nav tab.
@@ -69,7 +82,7 @@ function App(): React.JSX.Element {
         <span className="brand">Reference Frame</span>
         {VIEWS.map((v) => (
           <button key={v} onClick={() => goTo(v)} className={view === v ? 'active' : undefined}>
-            {v}
+            {v === 'Coach' ? 'Insights' : v}
             {busyFor[v] && (
               <span className="busy-dot" title="job running">
                 ●
@@ -93,7 +106,22 @@ function App(): React.JSX.Element {
         )}
 
         {!config ? (
-          <p className="muted">Loading…</p>
+          configError ? (
+            <div>
+              <p className="neg">Couldn&apos;t load your settings: {configError}</p>
+              <button
+                className="btn-sm"
+                onClick={() => {
+                  setConfigError(null)
+                  loadConfig()
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <p className="muted">Loading…</p>
+          )
         ) : (
           <>
             {/* All five views stay mounted (display: none when inactive) so a
@@ -126,7 +154,11 @@ function App(): React.JSX.Element {
               <Pros config={config} active={view === 'Pros'} onBusyChange={setProsBusy} />
             </div>
             <div hidden={view !== 'Coach'}>
-              <Coach initialRunId={coachRunId ?? undefined} />
+              <Coach
+                initialRunId={coachRunId ?? undefined}
+                active={view === 'Coach'}
+                onConfigChange={setConfig}
+              />
             </div>
             <div hidden={view !== 'Settings'}>
               <Settings config={config} onSaved={setConfig} />

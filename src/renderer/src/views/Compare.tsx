@@ -15,6 +15,7 @@ import {
   type MetricDirection
 } from '../metrics/registry'
 import { formatValue, resolveMetric, SECTION_LABELS } from '../metrics/resolve'
+import { friendlyError } from './engineProgress'
 import { roleNoun } from './shared'
 
 interface Props {
@@ -24,6 +25,7 @@ interface Props {
 }
 
 interface SideState {
+  error?: string
   loading: boolean
   run: RunRecord | null
   metrics: MetricsSummary | null
@@ -41,7 +43,11 @@ function fmtDate(iso: string): string {
 // pair before this one resolved) never clobbers newer state — same pattern
 // Report.tsx uses for its own run/metrics loads.
 function useRunWithMetrics(runId: string): SideState {
-  const [runState, setRunState] = useState<{ runId: string; run: RunRecord | null } | null>(null)
+  const [runState, setRunState] = useState<{
+    runId: string
+    run: RunRecord | null
+    error?: string
+  } | null>(null)
   const [metricsState, setMetricsState] = useState<{
     runId: string
     metrics: MetricsSummary | null
@@ -49,9 +55,14 @@ function useRunWithMetrics(runId: string): SideState {
 
   useEffect(() => {
     let cancelled = false
-    window.api.libraryGet(runId).then((d) => {
-      if (!cancelled) setRunState({ runId, run: d ? d.run : null })
-    })
+    window.api
+      .libraryGet(runId)
+      .then((d) => {
+        if (!cancelled) setRunState({ runId, run: d ? d.run : null })
+      })
+      .catch((err) => {
+        if (!cancelled) setRunState({ runId, run: null, error: friendlyError(err) })
+      })
     return () => {
       cancelled = true
     }
@@ -59,9 +70,14 @@ function useRunWithMetrics(runId: string): SideState {
 
   useEffect(() => {
     let cancelled = false
-    window.api.libraryMetrics(runId).then((m) => {
-      if (!cancelled) setMetricsState({ runId, metrics: m })
-    })
+    window.api
+      .libraryMetrics(runId)
+      .then((m) => {
+        if (!cancelled) setMetricsState({ runId, metrics: m })
+      })
+      .catch(() => {
+        if (!cancelled) setMetricsState({ runId, metrics: null })
+      })
     return () => {
       cancelled = true
     }
@@ -70,6 +86,7 @@ function useRunWithMetrics(runId: string): SideState {
   const runReady = runState !== null && runState.runId === runId
   const metricsReady = metricsState !== null && metricsState.runId === runId
   return {
+    error: runReady ? runState.error : undefined,
     loading: !runReady || !metricsReady,
     run: runReady ? runState.run : null,
     metrics: metricsReady ? metricsState.metrics : null
@@ -129,7 +146,11 @@ function Compare({ runA, runB, onBack }: Props): React.JSX.Element {
     return (
       <div>
         <button onClick={onBack}>← Library</button>
-        <p className="neg">One or both runs could not be found.</p>
+        <p className="neg">
+          {a.error || b.error
+            ? `Couldn't load the runs: ${a.error ?? b.error}`
+            : 'One or both runs could not be found.'}
+        </p>
       </div>
     )
   }

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AppConfig, CliDetection, CoachKeyStatus } from '../../../preload/index.d'
+import { friendlyError } from './engineProgress'
 
 interface Props {
   config: AppConfig
@@ -15,6 +16,25 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
   const [backend, setBackend] = useState(config.coachBackend)
   const [coachModel, setCoachModel] = useState(config.coachModel)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
+  // The config can change elsewhere (Coach writes coachModel). Re-sync any
+  // field whose stored value changed, so a later Save doesn't revert it —
+  // but leave fields the user is mid-edit on (unchanged in config) alone.
+  const prevConfig = useRef(config)
+  useEffect(() => {
+    const prev = prevConfig.current
+    prevConfig.current = config
+    if (prev === config) return
+    if (prev.role !== config.role) setRole(config.role)
+    if (prev.userName !== config.userName) setUserName(config.userName)
+    if (prev.poseModel !== config.poseModel) setPoseModel(config.poseModel)
+    if (prev.notesFolder !== config.notesFolder) setNotesFolder(config.notesFolder ?? '')
+    if (prev.notesWriteEnabled !== config.notesWriteEnabled)
+      setNotesWriteEnabled(config.notesWriteEnabled)
+    if (prev.coachBackend !== config.coachBackend) setBackend(config.coachBackend)
+    if (prev.coachModel !== config.coachModel) setCoachModel(config.coachModel)
+  }, [config])
 
   const [keyInput, setKeyInput] = useState('')
   const [keyStatus, setKeyStatus] = useState<CoachKeyStatus | null>(null)
@@ -22,8 +42,14 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
   const [cli, setCli] = useState<CliDetection | null>(null)
 
   useEffect(() => {
-    window.api.coachKeyStatus().then(setKeyStatus)
-    window.api.detectClaudeCli().then(setCli)
+    window.api
+      .coachKeyStatus()
+      .then(setKeyStatus)
+      .catch((err) => setKeyError(friendlyError(err)))
+    window.api
+      .detectClaudeCli()
+      .then(setCli)
+      .catch(() => setCli({ found: false }))
   }, [])
 
   const browseNotes = async (): Promise<void> => {
@@ -33,39 +59,53 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
 
   const saveKey = async (): Promise<void> => {
     setKeyError('')
-    const res = await window.api.setCoachKey(keyInput)
-    if (!res.ok) {
-      setKeyError(
-        res.reason === 'encryption_unavailable'
-          ? 'OS keychain unavailable — cannot store the key securely.'
-          : `Could not save key (${res.reason ?? 'unknown'}).`
-      )
-      return
+    try {
+      const res = await window.api.setCoachKey(keyInput)
+      if (!res.ok) {
+        setKeyError(
+          res.reason === 'encryption_unavailable'
+            ? 'OS keychain unavailable — cannot store the key securely.'
+            : `Could not save key (${friendlyError(res.reason ?? 'unknown')}).`
+        )
+        return
+      }
+      setKeyInput('')
+      setKeyStatus(await window.api.coachKeyStatus())
+    } catch (err) {
+      setKeyError(`Could not save key: ${friendlyError(err)}`)
     }
-    setKeyInput('')
-    setKeyStatus(await window.api.coachKeyStatus())
   }
 
   const clearKey = async (): Promise<void> => {
-    await window.api.clearCoachKey()
-    setKeyStatus(await window.api.coachKeyStatus())
+    setKeyError('')
+    try {
+      await window.api.clearCoachKey()
+      setKeyStatus(await window.api.coachKeyStatus())
+    } catch (err) {
+      setKeyError(`Could not remove key: ${friendlyError(err)}`)
+    }
   }
 
   const save = async (): Promise<void> => {
-    const next = await window.api.setConfig({
-      role,
-      userName: userName.trim(),
-      poseModel,
-      notesFolder: notesFolder.trim() || null,
-      // Clearing the folder always turns writing off too — no orphaned
-      // write-enabled-but-nowhere-to-write state.
-      notesWriteEnabled: notesWriteEnabled && !!notesFolder.trim(),
-      coachBackend: backend,
-      coachModel
-    })
-    onSaved(next)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaveError('')
+    try {
+      const next = await window.api.setConfig({
+        role,
+        userName: userName.trim(),
+        poseModel,
+        notesFolder: notesFolder.trim() || null,
+        // Clearing the folder always turns writing off too — no orphaned
+        // write-enabled-but-nowhere-to-write state.
+        notesWriteEnabled: notesWriteEnabled && !!notesFolder.trim(),
+        coachBackend: backend,
+        coachModel
+      })
+      onSaved(next)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setSaveError(`Could not save settings: ${friendlyError(err)}`)
+    }
   }
 
   return (
@@ -106,19 +146,23 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
       </p>
 
       <h4 style={{ marginTop: 16 }}>Your name</h4>
-      <input style={{ width: '100%' }} value={userName} onChange={(e) => setUserName(e.target.value)} />
+      <input
+        style={{ width: '100%' }}
+        value={userName}
+        onChange={(e) => setUserName(e.target.value)}
+      />
 
       <h4 style={{ marginTop: 16 }}>Notes folder</h4>
       <p className="muted small" style={{ marginTop: -8 }}>
-        Point at a folder of markdown lesson notes and the coach will cite the bullets that relate
+        Point at a folder of markdown lesson notes and Insights will cite the bullets that relate
         to your gaps — quoting your own instructors, never inventing one. Writing session summaries
-        and coach notes back into the folder only happens if you turn it on below.
+        and insights back into the folder only happens if you turn it on below.
       </p>
       <div style={{ display: 'flex', gap: 8 }}>
         <input
           style={{ flex: 1, padding: 6 }}
           value={notesFolder}
-          placeholder="No folder set — coach uses the reports only"
+          placeholder="No folder set — Insights uses the reports only"
           onChange={(e) => setNotesFolder(e.target.value)}
         />
         <button className="btn-sm" onClick={browseNotes}>
@@ -137,10 +181,10 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
           disabled={!notesFolder.trim()}
           onChange={(e) => setNotesWriteEnabled(e.target.checked)}
         />{' '}
-        Also write session summaries and coach notes into this folder
+        Also write session summaries and insights into this folder
       </label>
 
-      <h4 style={{ marginTop: 16 }}>AI coach</h4>
+      <h4 style={{ marginTop: 16 }}>AI insights</h4>
       <label className="check-label" style={{ marginBottom: 4, display: 'block' }}>
         <input
           type="radio"
@@ -198,7 +242,7 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
       )}
 
       <label className="check-label" style={{ marginTop: 12, display: 'block' }}>
-        Coach model
+        Insights model
         <br />
         <select
           value={coachModel}
@@ -215,6 +259,7 @@ function Settings({ config, onSaved }: Props): React.JSX.Element {
           Save
         </button>{' '}
         {saved && <span className="pos">Saved.</span>}
+        {saveError && <span className="neg">{saveError}</span>}
       </div>
     </div>
   )

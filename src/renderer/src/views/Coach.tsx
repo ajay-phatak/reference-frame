@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  AppConfig,
   CoachModel,
   CoachResult,
   CoachStatus,
   CoachUsage,
   RunRecord
 } from '../../../preload/index.d'
+import { friendlyError } from './engineProgress'
+import { LoadError } from './shared'
 
 const MODEL_LABELS: Record<CoachModel, string> = {
   sonnet: 'Sonnet — fast, recommended',
@@ -55,9 +58,14 @@ function runLabel(r: RunRecord): string {
 
 interface Props {
   initialRunId?: string
+  // Views stay mounted; refetch status + runs each time this tab is shown.
+  active: boolean
+  // Coach writes coachModel to config — hand the result up so Settings (which
+  // mirrors config) doesn't revert it on its next Save.
+  onConfigChange: (config: AppConfig) => void
 }
 
-function Coach({ initialRunId }: Props): React.JSX.Element {
+function Coach({ initialRunId, active, onConfigChange }: Props): React.JSX.Element {
   const [status, setStatus] = useState<CoachStatus | null>(null)
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [runId, setRunId] = useState<string>('')
@@ -70,36 +78,58 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
   const [adviseProse, setAdviseProse] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
+  // Refetch status + runs whenever the tab becomes active (a run may have
+  // finished, or the backend/key/model changed in Settings, while it was
+  // hidden). The current selection is kept if it's still valid; a fresh
+  // "Ask the coach" hand-off (initialRunId not yet applied) wins over it.
+  const appliedInitial = useRef<string | undefined>(undefined)
   useEffect(() => {
-    window.api.coachStatus().then(setStatus)
-    window.api.libraryList().then((list) => {
-      const done = list.filter((r) => r.status === 'done' && r.resultPaths.reportPath)
-      setRuns(done)
-      // "Ask the coach" from the Report view seeds a specific run; otherwise
-      // default to the newest.
-      if (initialRunId && done.some((r) => r.runId === initialRunId)) setRunId(initialRunId)
-      else if (done.length > 0) setRunId(done[0].runId) // newest-first
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // With keep-mounted views, "Ask the coach" from a Report can hand a new
-  // initialRunId to an already-mounted Coach — react to that change (but not
-  // to the initial mount, which the effect above already handles) by
-  // refetching the run list (the hand-off run may have completed after this
-  // view's mount-time fetch) and switching to it.
-  const prevInitialRunId = useRef(initialRunId)
-  useEffect(() => {
-    if (initialRunId && initialRunId !== prevInitialRunId.current) {
-      window.api.libraryList().then((list) => {
+    if (!active) return
+    let cancelled = false
+    Promise.all([window.api.coachStatus(), window.api.libraryList()])
+      .then(([st, list]) => {
+        if (cancelled) return
+        setStatus(st)
+        setLoadError(null)
         const done = list.filter((r) => r.status === 'done' && r.resultPaths.reportPath)
         setRuns(done)
-        setRunId(initialRunId)
+        const handoff =
+          initialRunId && initialRunId !== appliedInitial.current ? initialRunId : undefined
+        if (handoff) appliedInitial.current = handoff
+        setRunId((cur) => {
+          if (handoff && done.some((r) => r.runId === handoff)) return handoff
+          if (cur && done.some((r) => r.runId === cur)) return cur
+          return done.length > 0 ? done[0].runId : '' // newest-first
+        })
       })
+      .catch((err) => {
+        if (!cancelled) setLoadError(friendlyError(err))
+      })
+    return () => {
+      cancelled = true
     }
-    prevInitialRunId.current = initialRunId
-  }, [initialRunId])
+  }, [active, initialRunId, reloadKey])
+
+  // A different run means a different conversation: drop the local turns and
+  // the main-process chat history so follow-ups don't refer to the old run.
+  const prevRunId = useRef('')
+  useEffect(() => {
+    const prev = prevRunId.current
+    prevRunId.current = runId
+    if (prev === '' || prev === runId) return
+    setTurns([])
+    setStreaming('')
+    setCards([])
+    setAdviseProse('')
+    setSaveStatus('')
+    setError('')
+    window.api.coachReset().catch(() => {})
+  }, [runId])
+
+  const reload = useCallback((): void => setReloadKey((k) => k + 1), [])
 
   useEffect(() => window.api.onCoachDelta((text) => setStreaming((s) => s + text)), [])
 
@@ -117,7 +147,9 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
         setAdviseProse(res.text)
       }
     } else {
-      setError(REASON_TEXT[res.reason ?? ''] ?? `Coach failed: ${res.reason ?? 'unknown'}`)
+      setError(
+        REASON_TEXT[res.reason ?? ''] ?? `Insights failed: ${friendlyError(res.reason ?? 'unknown')}`
+      )
     }
   }
 
@@ -131,6 +163,9 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
     setSaveStatus('')
     try {
       finish(await window.api.coachReport(runId))
+    } catch (err) {
+      setStreaming('')
+      setError(friendlyError(err))
     } finally {
       setRunning(false)
     }
@@ -138,13 +173,19 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
 
   const saveFocuses = async (): Promise<void> => {
     setSaveStatus('Saving…')
-    const res = await window.api.saveFocuses({
-      prose: adviseProse,
-      focuses: cards.map(({ gap, plan }) => ({ gap, plan }))
-    })
-    setSaveStatus(
-      res.ok ? 'Saved — these shape your next report.' : `Save failed: ${res.reason ?? 'unknown'}`
-    )
+    try {
+      const res = await window.api.saveFocuses({
+        prose: adviseProse,
+        focuses: cards.map(({ gap, plan }) => ({ gap, plan }))
+      })
+      setSaveStatus(
+        res.ok
+          ? 'Saved — these shape your next read.'
+          : `Save failed: ${friendlyError(res.reason ?? 'unknown')}`
+      )
+    } catch (err) {
+      setSaveStatus(`Save failed: ${friendlyError(err)}`)
+    }
   }
 
   const send = async (): Promise<void> => {
@@ -156,24 +197,34 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
     setRunning(true)
     try {
       finish(await window.api.coachChat(text))
+    } catch (err) {
+      setStreaming('')
+      setError(friendlyError(err))
     } finally {
       setRunning(false)
     }
   }
 
-  if (status === null) return <p className="muted">Loading…</p>
+  if (status === null) {
+    return loadError ? (
+      <LoadError message={loadError} onRetry={reload} />
+    ) : (
+      <p className="muted">Loading…</p>
+    )
+  }
 
   if (!status.ready) {
     return (
       <div>
-        <h1>Coach</h1>
+        <h1>Insights</h1>
         <div className="callout">
-          <strong>AI coach</strong> — a written coaching read on any analyzed run, plus a chat to
-          dig into the details.{' '}
+          <strong>AI insights</strong> — a plain-language read of what a run&apos;s numbers show,
+          questions to bring to your teacher, and a chat to dig into the details. Not a substitute
+          for lessons.{' '}
           {status.backend === 'claude-cli' ? (
             <>
               Claude Code wasn&apos;t detected on this machine — install it and log in with your
-              Pro/Max account (reports are then covered by your plan), or switch the coach to an API
+              Pro/Max account (reports are then covered by your plan), or switch Insights to an API
               key in Settings.
             </>
           ) : (
@@ -191,7 +242,7 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
       <div className="row" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
-        <h1 className="h-inline">Coach</h1>
+        <h1 className="h-inline">Insights</h1>
         <select
           value={runId}
           disabled={running || runs.length === 0}
@@ -206,7 +257,7 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
           ))}
         </select>
         <button className="btn-primary" disabled={running || !runId} onClick={report}>
-          {turns.length === 0 ? 'Coach this run' : 'New report'}
+          {turns.length === 0 ? 'Get insights on this run' : 'New report'}
         </button>
         <select
           value={status.model}
@@ -214,8 +265,13 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
           style={{ fontSize: 12 }}
           onChange={async (e) => {
             const model = e.target.value as CoachModel
-            await window.api.setConfig({ coachModel: model })
-            setStatus({ ...status, model })
+            try {
+              const next = await window.api.setConfig({ coachModel: model })
+              onConfigChange(next)
+              setStatus({ ...status, model })
+            } catch (err) {
+              setError(`Couldn't change the model: ${friendlyError(err)}`)
+            }
           }}
         >
           {(Object.keys(MODEL_LABELS) as CoachModel[]).map((m) => (
@@ -229,17 +285,17 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
 
       {turns.length === 0 && !streaming && !error && (
         <p className="muted">
-          Reads the run&apos;s report and gap analysis, surfaces the biggest gaps, and gives each a
-          suggested fix — keep the suggestion or write your own plan, then save your focuses. Saved
-          focuses shape the next report. If you set a notes folder in Settings, the coach cites your
-          own lessons where they fit.
+          Reads the run&apos;s report and gap analysis, describes the biggest gaps in plain terms
+          and drafts a question for your teacher on each — keep, edit, or replace them, then save.
+          Saved questions shape the next read. If you set a notes folder in Settings, Insights
+          cites your own lessons where they fit.
         </p>
       )}
 
       {turns.map((t, i) => (
         <div key={i} className="card" style={{ marginBottom: 8 }}>
           <div className="eyebrow" style={{ marginBottom: 4 }}>
-            {t.role === 'user' ? 'You' : 'Coach'}
+            {t.role === 'user' ? 'You' : 'Insights'}
           </div>
           <div style={{ whiteSpace: 'pre-wrap' }}>{t.text}</div>
           {t.usage && <CostLine usage={t.usage} />}
@@ -254,18 +310,19 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
       {streaming && (
         <div className="card" style={{ marginBottom: 8 }}>
           <div className="eyebrow" style={{ marginBottom: 4 }}>
-            Coach
+            Insights
           </div>
           <div style={{ whiteSpace: 'pre-wrap' }}>{streaming.split('```json')[0]}</div>
         </div>
       )}
 
+      {loadError && <p className="neg small">{loadError}</p>}
       {error && <p className="neg">{error}</p>}
 
       {cards.length > 0 && (
         <div style={{ marginTop: 8, marginBottom: 8 }}>
           <h3 className="eyebrow" style={{ margin: '12px 0 8px' }}>
-            Focuses — keep each suggestion or write your own plan
+            Questions for your teacher — keep each one or write your own
           </h3>
           {cards.map((c, i) => (
             <div key={i} className="card" style={{ marginBottom: 8 }}>
@@ -288,7 +345,7 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
                     setCards((cs) => cs.map((x, j) => (j === i ? { ...x, plan: x.suggestion } : x)))
                   }
                 >
-                  Reset to suggestion
+                  Reset to draft
                 </button>
               )}
             </div>
@@ -299,7 +356,7 @@ function Coach({ initialRunId }: Props): React.JSX.Element {
               disabled={running || cards.some((c) => !c.plan.trim())}
               onClick={saveFocuses}
             >
-              Save focuses
+              Save questions
             </button>
             {saveStatus && (
               <span className={`small ${saveStatus.startsWith('Save failed') ? 'neg' : 'pos'}`}>

@@ -26,7 +26,7 @@
 //     `_cols_for` — never "whichever role you picked"). Those become
 //     partner-only cards when the analyzed dancer is the other role.
 import type { MetricsSummary } from '../../../preload/index.d'
-import { SECTION_ORDER, type MetricDef } from './registry'
+import { METRIC_REGISTRY, SECTION_ORDER, type MetricDef } from './registry'
 
 export type Role = 'lead' | 'follow'
 
@@ -104,4 +104,14 @@ export const SECTION_LABELS: Record<(typeof SECTION_ORDER)[number], string> = {
   weight_countering: 'Connection',
   travel: 'Travel',
   tracking_quality: 'Tracking quality'
+}
+
+// True when at least one registry entry resolves and would be shown for this
+// run — MetricCards renders nothing otherwise, and Report falls back to the
+// raw report text.
+export function hasVisibleMetrics(metrics: MetricsSummary, role: Role, partner: boolean): boolean {
+  return METRIC_REGISTRY.some((def) => {
+    const r = resolveMetric(metrics, def, role)
+    return !!r && !(r.partnerOnly && !partner)
+  })
 }

@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppConfig, EngineEvent, ProEntry, SeedDetection } from '../../../preload/index.d'
 import {
+  friendlyError,
   looksLikeYoutubeUrl,
   makeSeedBoxClickHandler,
   sortedStages,
-  type StageState
+  validatePicks
 } from './engineProgress'
-import { ProgressBlock, SeedPicker, VideoInput } from './shared'
+import { LoadError, ProgressBlock, SeedPicker, VideoInput } from './shared'
+import { useEngineFeed } from './useEngineFeed'
 
 interface Props {
   config: AppConfig
@@ -30,8 +32,15 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
   const [pros, setPros] = useState<ProEntry[] | null>(null)
   const [adding, setAdding] = useState(false)
 
+  const [loadError, setLoadError] = useState<string | null>(null)
   const refresh = useCallback((): void => {
-    window.api.prosList().then(setPros)
+    window.api
+      .prosList()
+      .then((list) => {
+        setPros(list)
+        setLoadError(null)
+      })
+      .catch((err) => setLoadError(friendlyError(err)))
   }, [])
 
   // Refetch on mount and whenever this tab becomes visible again — an
@@ -43,7 +52,11 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
   const removePro = async (e: React.MouseEvent, id: string): Promise<void> => {
     e.stopPropagation()
     if (!window.confirm('Remove this pro? This cannot be undone.')) return
-    await window.api.prosRemove(id)
+    try {
+      await window.api.prosRemove(id)
+    } catch (err) {
+      setLoadError(friendlyError(err))
+    }
     refresh()
   }
 
@@ -68,13 +81,13 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
   const [seedImgNatural, setSeedImgNatural] = useState<{ w: number; h: number } | null>(null)
   const [seedLoading, setSeedLoading] = useState(false)
   const [seedError, setSeedError] = useState<string | null>(null)
-  const [seedStageProgress, setSeedStageProgress] = useState<Record<string, StageState>>({})
-  const [seedLogs, setSeedLogs] = useState<string[]>([])
+  // Buffered progress/log state (see useEngineFeed).
+  const seedFeed = useEngineFeed()
+  const feed = useEngineFeed()
   const [seedShowLog, setSeedShowLog] = useState(false)
 
   const [submitting, setSubmitting] = useState(false)
-  const [stageProgress, setStageProgress] = useState<Record<string, StageState>>({})
-  const [logs, setLogs] = useState<string[]>([])
+  const submittingRef = useRef(false)
   const [showLog, setShowLog] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
@@ -86,12 +99,42 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
 
   const pickFile = async (): Promise<void> => {
     const path = await window.api.pickVideoFile()
-    if (path) setFilePath(path)
+    if (path) {
+      setFilePath(path)
+      resetSeed()
+    }
   }
 
   const input = inputMode === 'file' ? filePath : url.trim()
 
+  // A seed-preview belongs to ONE video: when the input changes, drop it so
+  // `seedVideo ?? input` can't silently add the previously previewed video.
+  const seedEpoch = useRef(0)
+  const resetSeed = (): void => {
+    seedEpoch.current++
+    setJobId(null)
+    setSeedImage(null)
+    setSeedDets(null)
+    setSeedVideo(null)
+    setSeedFrameIdx(undefined)
+    setSeedTSec(undefined)
+    setLeadIdx(null)
+    setPartnerIdx(null)
+    setSeedImgNatural(null)
+    setSeedError(null)
+    seedFeed.reset()
+  }
+  const changeInputMode = (m: 'file' | 'url'): void => {
+    setInputMode(m)
+    resetSeed()
+  }
+  const changeUrl = (u: string): void => {
+    setUrl(u)
+    resetSeed()
+  }
+
   const resetAddFlow = (): void => {
+    seedEpoch.current++
     setInputMode('file')
     setFilePath('')
     setUrl('')
@@ -108,11 +151,9 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
     setPartnerIdx(null)
     setSeedImgNatural(null)
     setSeedError(null)
-    setSeedStageProgress({})
-    setSeedLogs([])
+    seedFeed.reset()
     setErrorMsg(null)
-    setStageProgress({})
-    setLogs([])
+    feed.reset()
   }
 
   const cancelAdding = (): void => {
@@ -124,30 +165,18 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
     if (!input || seedLoading) return
     setSeedLoading(true)
     setSeedError(null)
-    setSeedStageProgress({})
-    setSeedLogs([])
+    seedFeed.reset()
+    const epoch = seedEpoch.current
 
     const unsubscribe = window.api.onProsEvent((e: EngineEvent) => {
-      if (e.event === 'progress' && typeof e.stage === 'string') {
-        const stage = e.stage
-        setSeedStageProgress((prev) => ({
-          ...prev,
-          [stage]: {
-            current: typeof e.current === 'number' ? e.current : 0,
-            total: typeof e.total === 'number' ? e.total : 0,
-            detail: typeof e.detail === 'string' ? e.detail : undefined,
-            startedAt: prev[stage]?.startedAt ?? Date.now()
-          }
-        }))
-      } else if (e.event === 'log') {
-        setSeedLogs((prev) => [...prev, String(e.msg ?? '')])
-      } else if (e.event === 'error') {
-        setSeedError(String(e.msg ?? 'Engine error'))
-      }
+      if (seedFeed.handle(e)) return
+      if (e.event === 'error') setSeedError(friendlyError(e.msg ?? 'Engine error'))
     })
 
     try {
       const res = await window.api.prosSeedPreview({ input, atSec, poseModel, jobId })
+      // The user switched videos while this preview ran — discard it.
+      if (seedEpoch.current !== epoch) return
       if (res.ok) {
         setJobId(res.jobId ?? null)
         setSeedImage(res.image ?? null)
@@ -162,9 +191,10 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
         setSeedError(res.reason ?? 'Could not find dancers in this frame')
       }
     } catch (err) {
-      setSeedError(String(err))
+      if (seedEpoch.current === epoch) setSeedError(friendlyError(err))
     } finally {
       unsubscribe()
+      seedFeed.flush()
       setSeedLoading(false)
     }
   }
@@ -182,33 +212,23 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
   }
 
   const submit = async (): Promise<void> => {
+    // Synchronous guard: a second click in the same tick would otherwise get
+    // past the (async) `submitting` state check and enqueue twice.
+    if (submittingRef.current) return
     if (!jobId || leadIdx == null || partnerIdx == null || submitting) return
+    if (validatePicks(leadIdx, partnerIdx, seedDets) !== null) return
     if (!label.trim() || !couple.trim()) {
       setErrorMsg('Label and couple are required')
       return
     }
+    submittingRef.current = true
     setSubmitting(true)
     setErrorMsg(null)
-    setStageProgress({})
-    setLogs([])
+    feed.reset()
 
     const unsubscribe = window.api.onProsEvent((e: EngineEvent) => {
-      if (e.event === 'progress' && typeof e.stage === 'string') {
-        const stage = e.stage
-        setStageProgress((prev) => ({
-          ...prev,
-          [stage]: {
-            current: typeof e.current === 'number' ? e.current : 0,
-            total: typeof e.total === 'number' ? e.total : 0,
-            detail: typeof e.detail === 'string' ? e.detail : undefined,
-            startedAt: prev[stage]?.startedAt ?? Date.now()
-          }
-        }))
-      } else if (e.event === 'log') {
-        setLogs((prev) => [...prev, String(e.msg ?? '')])
-      } else if (e.event === 'error') {
-        setErrorMsg(String(e.msg ?? 'Engine error'))
-      }
+      if (feed.handle(e)) return
+      if (e.event === 'error') setErrorMsg(friendlyError(e.msg ?? 'Engine error'))
     })
 
     try {
@@ -225,12 +245,14 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
         refresh()
         cancelAdding()
       } else {
-        setErrorMsg(res.reason ?? 'Could not add this pro')
+        setErrorMsg(friendlyError(res.reason ?? 'Could not add this pro'))
       }
     } catch (err) {
-      setErrorMsg(String(err))
+      setErrorMsg(friendlyError(err))
     } finally {
+      submittingRef.current = false
       unsubscribe()
+      feed.flush()
       setSubmitting(false)
     }
   }
@@ -239,11 +261,12 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
     window.api.cancelAnalyze()
   }
 
-  const stages = sortedStages(stageProgress)
-  const seedStages = sortedStages(seedStageProgress)
+  const stages = sortedStages(feed.stageProgress)
+  const seedStages = sortedStages(seedFeed.stageProgress)
+  const picksProblem = validatePicks(leadIdx, partnerIdx, seedDets)
 
   const submitDisabled =
-    !jobId || leadIdx == null || partnerIdx == null || submitting || !label.trim() || !couple.trim()
+    !jobId || picksProblem !== null || submitting || !label.trim() || !couple.trim()
 
   return (
     <div>
@@ -253,7 +276,11 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
       </p>
 
       {pros === null ? (
-        <p className="muted">Loading…</p>
+        loadError ? (
+          <LoadError message={loadError} onRetry={refresh} />
+        ) : (
+          <p className="muted">Loading…</p>
+        )
       ) : (
         <>
           {pros.length === 0 && !adding && (
@@ -291,11 +318,11 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
 
           <VideoInput
             inputMode={inputMode}
-            setInputMode={setInputMode}
+            setInputMode={changeInputMode}
             filePath={filePath}
             onPickFile={pickFile}
             url={url}
-            setUrl={setUrl}
+            setUrl={changeUrl}
             disabled={submitting || seedLoading}
           />
           {inputMode === 'url' && url.trim() && !looksLikeYoutubeUrl(url.trim()) && (
@@ -364,8 +391,8 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
               <div style={{ marginTop: 12 }}>
                 <ProgressBlock
                   stages={seedStages}
-                  stageProgress={seedStageProgress}
-                  logs={seedLogs}
+                  stageProgress={seedFeed.stageProgress}
+                  logs={seedFeed.logs}
                   showLog={seedShowLog}
                   onToggleLog={() => setSeedShowLog((v) => !v)}
                 />
@@ -419,9 +446,11 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
                   </button>
                 </div>
                 <p className="muted tiny" style={{ marginTop: 4 }}>
-                  {leadIdx != null && partnerIdx != null
+                  {picksProblem === null
                     ? `Leader: #${leadIdx} · Follower: #${partnerIdx}`
-                    : 'Click the leader, then the follower'}
+                    : leadIdx == null || partnerIdx == null
+                      ? 'Click the leader, then the follower'
+                      : picksProblem}
                 </p>
               </div>
             )}
@@ -438,8 +467,8 @@ function Pros({ config, active, onBusyChange }: Props): React.JSX.Element {
               <h4>Progress</h4>
               <ProgressBlock
                 stages={stages}
-                stageProgress={stageProgress}
-                logs={logs}
+                stageProgress={feed.stageProgress}
+                logs={feed.logs}
                 showLog={showLog}
                 onToggleLog={() => setShowLog((v) => !v)}
               />

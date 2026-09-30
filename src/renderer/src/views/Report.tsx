@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AppConfig, MetricsSummary, RunDetail } from '../../../preload/index.d'
 import { parseGap, type GapRow } from '../gap'
+import { hasVisibleMetrics } from '../metrics/resolve'
+import { friendlyError } from './engineProgress'
 import { GapBars } from './GapBars'
 import { MetricCards } from './MetricCards'
-import { roleNoun } from './shared'
+import { LoadError, roleNoun } from './shared'
 
 // Prefer the captured YouTube title when the engine grabbed one; otherwise
 // fall back to a small "YouTube <id>" chip, reusing the same 11-char-id regex
@@ -55,7 +57,12 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
   // Keyed by runId so a fetch for a stale runId (still resolving after the
   // user picked a different run) never clobbers newer state, and "loading"
   // is derivable without a synchronous setState at the top of the effect.
-  const [loaded, setLoaded] = useState<{ runId: string; detail: RunDetail | null } | null>(null)
+  const [loaded, setLoaded] = useState<{
+    runId: string
+    detail: RunDetail | null
+    error?: string
+  } | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [swapping, setSwapping] = useState(false)
   const [swapError, setSwapError] = useState<string | null>(null)
   // Metrics are a progressive-enhancement overlay (plan-0.4.0 §3), loaded
@@ -70,28 +77,57 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
 
   useEffect(() => {
     let cancelled = false
-    window.api.libraryGet(runId).then((d) => {
-      if (!cancelled) setLoaded({ runId, detail: d })
-    })
+    window.api
+      .libraryGet(runId)
+      .then((d) => {
+        if (!cancelled) setLoaded({ runId, detail: d })
+      })
+      .catch((err) => {
+        if (!cancelled) setLoaded({ runId, detail: null, error: friendlyError(err) })
+      })
     return () => {
       cancelled = true
     }
-  }, [runId])
+  }, [runId, reloadKey])
 
   useEffect(() => {
     let cancelled = false
-    window.api.libraryMetrics(runId).then((m) => {
-      if (!cancelled) setMetricsState({ runId, metrics: m })
-    })
+    window.api
+      .libraryMetrics(runId)
+      .then((m) => {
+        if (!cancelled) setMetricsState({ runId, metrics: m })
+      })
+      .catch(() => {
+        // Metrics are an optional overlay — fall back to the raw report text.
+        if (!cancelled) setMetricsState({ runId, metrics: null })
+      })
     return () => {
       cancelled = true
     }
-  }, [runId])
+  }, [runId, reloadKey])
 
   const loading = loaded === null || loaded.runId !== runId
   const detail = loading ? null : loaded.detail
+  const loadError = loading ? undefined : loaded.error
+
+  // Parsing the gap text is not free; only redo it when the text changes
+  // (must sit above the early returns below to keep hook order stable).
+  const gapSource = detail?.gapText
+  const gap = useMemo(() => (gapSource ? parseGap(gapSource) : null), [gapSource])
 
   if (loading) return <p className="muted">Loading…</p>
+  if (loadError) {
+    return (
+      <LoadError
+        message={loadError}
+        onBack={onBack}
+        onRetry={() => {
+          setLoaded(null)
+          setReloadKey((k) => k + 1)
+        }}
+      />
+    )
+  }
   if (!detail) {
     return (
       <div>
@@ -101,7 +137,7 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
     )
   }
 
-  const { run, reportText, gapText } = detail
+  const { run, reportText } = detail
   // Guard against a stale fetch the same way `loaded` does above (a metrics
   // fetch for a runId the user has since navigated away from must not apply).
   const metrics = metricsState && metricsState.runId === runId ? metricsState.metrics : null
@@ -133,13 +169,19 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
         runId: run.runId
       })
       if (res.ok) {
-        const d = await window.api.libraryGet(runId)
+        // The swap rewrote the run's metrics too — refetch both or the
+        // cards would keep showing the previous dancer's numbers.
+        const [d, m] = await Promise.all([
+          window.api.libraryGet(runId),
+          window.api.libraryMetrics(runId).catch(() => null)
+        ])
         setLoaded({ runId, detail: d })
+        setMetricsState({ runId, metrics: m })
       } else {
-        setSwapError(res.reason ?? 'Swap failed')
+        setSwapError(friendlyError(res.reason ?? 'Swap failed'))
       }
     } catch (err) {
-      setSwapError(String(err))
+      setSwapError(friendlyError(err))
     } finally {
       setSwapping(false)
     }
@@ -150,18 +192,15 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
   const lowCoverage =
     coverage != null && Object.values(coverage).some((v) => typeof v === 'number' && v < 80)
 
-  const gap = gapText ? parseGap(gapText) : null
+  const showCards = !!metrics && hasVisibleMetrics(metrics, run.options.role, run.options.partner)
 
   return (
     <div>
-      <div className="row-between">
+      <div className="row-between" style={{ flexWrap: 'wrap' }}>
         <button onClick={onBack}>← Library</button>
-        <div className="row">
-          <button
-            disabled={run.status !== 'done' || !reportText}
-            onClick={() => onAskCoach(runId)}
-          >
-            Ask the coach
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button disabled={run.status !== 'done' || !reportText} onClick={() => onAskCoach(runId)}>
+            Get insights
           </button>
           <button
             disabled={run.status !== 'done' || run.youIdRaw == null || swapping}
@@ -212,7 +251,7 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
         </div>
       )}
 
-      {metrics ? (
+      {showCards && metrics ? (
         <>
           <h3>Report</h3>
           <MetricCards metrics={metrics} role={run.options.role} partner={run.options.partner} />
@@ -228,22 +267,24 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
 
       {gap && (
         <>
-          <div className="row-between">
+          <div className="row-between" style={{ flexWrap: 'wrap' }}>
             <h3 style={{ marginBottom: 0 }}>Gap analysis vs pro references</h3>
-            <div className="row">
-              <button
-                className={`toggle-btn${gapView === 'bars' ? ' active' : ''}`}
-                onClick={() => setGapView('bars')}
-              >
-                Bars
-              </button>
-              <button
-                className={`toggle-btn${gapView === 'table' ? ' active' : ''}`}
-                onClick={() => setGapView('table')}
-              >
-                Table
-              </button>
-            </div>
+            {gap.couples.length > 0 && (
+              <div className="row">
+                <button
+                  className={`toggle-btn${gapView === 'bars' ? ' active' : ''}`}
+                  onClick={() => setGapView('bars')}
+                >
+                  Bars
+                </button>
+                <button
+                  className={`toggle-btn${gapView === 'table' ? ' active' : ''}`}
+                  onClick={() => setGapView('table')}
+                >
+                  Table
+                </button>
+              </div>
+            )}
           </div>
 
           {gapView === 'bars' ? (
@@ -285,7 +326,7 @@ function Report({ runId, onBack, onAskCoach }: Props): React.JSX.Element {
 
       {/* Structured cards replace the raw text above; it stays available here
           verbatim — it's the golden-diff artifact (see CLAUDE.md). */}
-      {metrics && reportText && (
+      {showCards && reportText && (
         <div style={{ marginTop: 24, borderTop: '1px solid var(--border-1)', paddingTop: 16 }}>
           <button className="btn-sm" onClick={() => setShowFullReport((v) => !v)}>
             {showFullReport ? 'Hide full text report' : 'Show full text report'}

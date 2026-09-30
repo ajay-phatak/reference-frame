@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { RunRecord } from '../../../preload/index.d'
-import { roleNoun } from './shared'
+import { friendlyError, isCanceledMessage } from './engineProgress'
+import { LoadError, roleNoun } from './shared'
 
 interface Props {
   onOpen: (runId: string) => void
@@ -20,10 +21,31 @@ function fmtDate(iso: string): string {
   }
 }
 
-function statusClass(status: RunRecord['status']): string {
-  if (status === 'done') return 'pos'
-  if (status === 'error') return 'neg'
+function statusClass(run: RunRecord): string {
+  if (run.status === 'done') return 'pos'
+  if (run.status === 'error') return isCanceled(run) ? 'muted' : 'neg'
   return 'muted' // 'queued' and 'pending' both read as neutral, not error
+}
+
+// A cancel is recorded as an error run whose message is exactly "canceled".
+function isCanceled(run: RunRecord): boolean {
+  return run.status === 'error' && isCanceledMessage(run.error)
+}
+
+function statusLabel(run: RunRecord): string {
+  if (isCanceled(run)) return 'Canceled'
+  switch (run.status) {
+    case 'queued':
+      return 'Queued'
+    case 'pending':
+      return 'Analyzing'
+    case 'done':
+      return 'Done'
+    case 'error':
+      return 'Failed'
+    default:
+      return run.status
+  }
 }
 
 // Prefer the captured YouTube title when the engine grabbed one; otherwise
@@ -53,8 +75,16 @@ function Library({ onOpen, onCompare, active }: Props): React.JSX.Element {
   // puts the whole view into "pick B" mode (see header comment below).
   const [pickingA, setPickingA] = useState<string | null>(null)
 
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const refresh = useCallback((): void => {
-    window.api.libraryList().then(setRuns)
+    window.api
+      .libraryList()
+      .then((list) => {
+        setRuns(list)
+        setLoadError(null)
+      })
+      .catch((err) => setLoadError(friendlyError(err)))
   }, [])
 
   // Runs can finish while the user is elsewhere (keep-mounted views) —
@@ -74,13 +104,23 @@ function Library({ onOpen, onCompare, active }: Props): React.JSX.Element {
   const remove = async (e: React.MouseEvent, runId: string): Promise<void> => {
     e.stopPropagation()
     if (!window.confirm('Delete this run and all its files? This cannot be undone.')) return
-    await window.api.libraryDelete(runId)
+    try {
+      const res = await window.api.libraryDelete(runId)
+      setActionError(res.ok ? null : (res.reason ?? 'Could not delete this run.'))
+    } catch (err) {
+      setActionError(friendlyError(err))
+    }
     refresh()
   }
 
   const cancelQueued = async (e: React.MouseEvent, runId: string): Promise<void> => {
     e.stopPropagation()
-    await window.api.queueCancel(runId)
+    try {
+      await window.api.queueCancel(runId)
+      setActionError(null)
+    } catch (err) {
+      setActionError(friendlyError(err))
+    }
     refresh()
   }
 
@@ -102,7 +142,13 @@ function Library({ onOpen, onCompare, active }: Props): React.JSX.Element {
     onOpen(run.runId)
   }
 
-  if (runs === null) return <p className="muted">Loading…</p>
+  if (runs === null) {
+    return loadError ? (
+      <LoadError message={loadError} onRetry={refresh} />
+    ) : (
+      <p className="muted">Loading…</p>
+    )
+  }
 
   const pickingRun = pickingA ? runs.find((r) => r.runId === pickingA) : undefined
 
@@ -110,6 +156,8 @@ function Library({ onOpen, onCompare, active }: Props): React.JSX.Element {
     <div>
       <h1>Library</h1>
       <p className="muted">Your past runs and reports.</p>
+
+      {(loadError || actionError) && <p className="neg small">{loadError ?? actionError}</p>}
 
       {pickingRun && (
         <div className="banner-info row-between">
@@ -136,17 +184,28 @@ function Library({ onOpen, onCompare, active }: Props): React.JSX.Element {
           <div
             className={`card card-click${dimmed ? ' card-dimmed' : ''}`}
             key={run.runId}
+            role="button"
+            tabIndex={0}
+            aria-disabled={dimmed}
             onClick={() => {
               if (!dimmed) handleCardClick(run)
             }}
+            onKeyDown={(e) => {
+              // Ignore keys bubbling up from the card's own buttons.
+              if (e.target !== e.currentTarget) return
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                if (!dimmed) handleCardClick(run)
+              }
+            }}
           >
-            <div className="row-between">
+            <div className="row-between" style={{ flexWrap: 'wrap' }}>
               <h3 className="h-inline">
                 {run.videoName}{' '}
                 {run.options.spotlight && <span className="chip chip-even">spotlight</span>}{' '}
                 {srcLabel && <span className="chip chip-even">{srcLabel}</span>}
               </h3>
-              <div className="row">
+              <div className="row" style={{ flexWrap: 'wrap' }}>
                 {eligible && !pickingA && (
                   <button className="btn-sm" onClick={(e) => startCompare(e, run.runId)}>
                     Compare
@@ -164,8 +223,8 @@ function Library({ onOpen, onCompare, active }: Props): React.JSX.Element {
             </div>
             <p className="muted small" style={{ margin: 0 }}>
               {fmtDate(run.createdAt)} · {roleNoun(run.options.role)} ·{' '}
-              {run.partnerName ?? 'no partner name'}{' '}
-              · <span className={statusClass(run.status)}>{run.status}</span>
+              {run.partnerName ?? 'no partner name'} ·{' '}
+              <span className={statusClass(run)}>{statusLabel(run)}</span>
             </p>
           </div>
         )
