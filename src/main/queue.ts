@@ -72,6 +72,13 @@ export class EngineQueue {
     return true
   }
 
+  // Cancels every WAITING ticket (quit path); returns their ids.
+  cancelAll(): string[] {
+    const ids = this.waiting.map((w) => w.id)
+    for (const id of ids) this.cancel(id)
+    return ids
+  }
+
   snapshot(): QueueSnapshot {
     return { active: this.active, waiting: this.waiting.map((w) => w.id) }
   }

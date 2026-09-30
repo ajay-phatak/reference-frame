@@ -307,13 +307,13 @@ export interface ReferenceFrameApi {
   setConfig: (patch: Partial<AppConfig>) => Promise<AppConfig>
   pickVideoFile: () => Promise<string | null>
   analyze: (opts: AnalyzeOptions) => Promise<AnalyzeResult>
-  cancelAnalyze: () => Promise<boolean>
+  cancelAnalyze: (runId?: string) => Promise<boolean>
   doctor: () => Promise<DoctorResult>
   setupModels: (opts: { poseModel: AppConfig['poseModel'] }) => Promise<SetupResult>
   seedPreview: (opts: SeedPreviewOptions) => Promise<SeedPreviewResult>
   libraryList: () => Promise<RunRecord[]>
   libraryGet: (runId: string) => Promise<RunDetail | null>
-  libraryDelete: (runId: string) => Promise<{ ok: boolean }>
+  libraryDelete: (runId: string) => Promise<{ ok: boolean; reason?: string }>
   libraryOpenFolder: (runId: string) => Promise<{ ok: boolean }>
   libraryMetrics: (runId: string) => Promise<MetricsSummary | null>
   onEngineEvent: (cb: (e: EngineEvent) => void) => () => void

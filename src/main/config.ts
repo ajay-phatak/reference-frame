@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { readFileSync, mkdirSync } from 'fs'
+import { writeFileAtomic } from './fsutil'
 
 export interface AppConfig {
   role: 'lead' | 'follow'
@@ -51,6 +52,6 @@ export function loadConfig(): AppConfig {
 export function saveConfig(patch: Partial<AppConfig>): AppConfig {
   const merged = { ...loadConfig(), ...patch }
   mkdirSync(app.getPath('userData'), { recursive: true })
-  writeFileSync(configPath(), JSON.stringify(merged, null, 2))
+  writeFileAtomic(configPath(), JSON.stringify(merged, null, 2))
   return merged
 }
