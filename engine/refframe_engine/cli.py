@@ -139,6 +139,7 @@ def _build_parser():
     a.add_argument("--seed-partner-idx", type=int, default=None)
     a.add_argument("--compare-pros", action="store_true")
     a.add_argument("--pro-refs", default=None, help="Path to a baselines.json manifest")
+    a.add_argument("--node-path", default=None, help="JS runtime binary for yt-dlp (URL inputs)")
 
     s = sub.add_parser("seed-preview", help="Crowd mode: numbered-people preview at a timestamp")
     s.add_argument("input", help="Video file path or YouTube URL")
@@ -146,6 +147,7 @@ def _build_parser():
     s.add_argument("--out-dir", required=True)
     s.add_argument("--data-dir", default=None)
     s.add_argument("--pose-model", choices=list(paths.POSE_LETTERS), default="m")
+    s.add_argument("--node-path", default=None, help="JS runtime binary for yt-dlp (URL inputs)")
 
     st = sub.add_parser("setup", help="Download model weights (idempotent)")
     st.add_argument("--data-dir", default=None)
@@ -186,6 +188,7 @@ def _cmd_analyze(args):
                 pose_model=args.pose_model, refine_mode=args.refine_mode,
                 seed_me_idx=args.seed_me_idx, seed_partner_idx=args.seed_partner_idx,
                 compare_pros=args.compare_pros, pro_refs=args.pro_refs,
+                node_path=args.node_path,
             )
     except run._WeightsMissing as ex:
         events.error(f"Pose weights not found: {ex.path}. Run `setup` first.",
@@ -217,7 +220,8 @@ def _cmd_seed_preview(args):
     try:
         with _capture():
             _patch_checkpoint_dir(args.data_dir)
-            video_path, _, _ = run.resolve_input(args.input, args.out_dir, args.data_dir)
+            video_path, _, _ = run.resolve_input(args.input, args.out_dir, args.data_dir,
+                                                  node_path=args.node_path)
             run.seed_preview(pathlib.Path(video_path), args.at, args.out_dir,
                              args.data_dir, pose_letter=args.pose_model)
     except run._WeightsMissing as ex:

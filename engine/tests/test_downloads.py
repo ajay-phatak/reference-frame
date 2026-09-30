@@ -255,3 +255,45 @@ def test_configure_env_assigns_caches_and_disables_sync(tmp_path, monkeypatch):
     settings = json.loads((tmp_path / "d" / "models" / "ultralytics-config" /
                            "Ultralytics" / "settings.json").read_text())
     assert settings["sync"] is False
+
+
+# ── --node-path -> yt-dlp JS runtime ──────────────────────────────────────────
+
+def _run_download(monkeypatch, tmp_path, node_path):
+    import yt_dlp
+    from refframe_engine import download
+    captured = {}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            captured["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extract_info(self, url, download=True):
+            (tmp_path / "GbIP7Qtx-Q8.mp4").write_bytes(b"x")
+            return {"title": "t"}
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    monkeypatch.setattr(download, "_ffmpeg_exe", lambda: "ffmpeg")
+    monkeypatch.delenv("ELECTRON_RUN_AS_NODE", raising=False)
+    download.download_youtube("https://www.youtube.com/watch?v=GbIP7Qtx-Q8", tmp_path,
+                              node_path=node_path)
+    return captured["opts"]
+
+
+def test_node_path_sets_js_runtime_and_env(monkeypatch, tmp_path):
+    opts = _run_download(monkeypatch, tmp_path, r"C:\app\electron.exe")
+    assert opts["js_runtimes"] == {"node": {"path": r"C:\app\electron.exe"}}
+    assert os.environ["ELECTRON_RUN_AS_NODE"] == "1"
+    monkeypatch.delenv("ELECTRON_RUN_AS_NODE", raising=False)
+
+
+def test_no_node_path_no_js_runtime(monkeypatch, tmp_path):
+    opts = _run_download(monkeypatch, tmp_path, None)
+    assert "js_runtimes" not in opts
+    assert "ELECTRON_RUN_AS_NODE" not in os.environ

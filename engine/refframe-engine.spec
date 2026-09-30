@@ -45,6 +45,11 @@ datas += collect_data_files("imageio_ffmpeg")
 # ── yt_dlp: lazy extractor registry (imported by name at runtime) ────────────
 hiddenimports += collect_submodules("yt_dlp")
 
+# ── yt_dlp_ejs: JS challenge-solver scripts (non-.py data files) that an
+# external JS runtime executes; yt-dlp loads them from the installed package.
+datas += collect_data_files("yt_dlp_ejs")
+hiddenimports += collect_submodules("yt_dlp_ejs")
+
 # ── vendored sibling modules, imported bare (import pose_lift as pl) ─────────
 # cli.py inserts the package dir onto sys.path at runtime; pathex below lets
 # PyInstaller discover them, and naming them as hiddenimports guarantees the

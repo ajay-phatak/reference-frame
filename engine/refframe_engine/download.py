@@ -6,6 +6,7 @@ impossible in a frozen (PyInstaller) build — there is no python interpreter to
 format selection and ffmpeg location the source used, and streams download
 progress as NDJSON `progress` events on the "download" stage.
 """
+import os
 import pathlib
 import re
 
@@ -37,7 +38,7 @@ def _ffmpeg_exe() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def download_youtube(url: str, out_dir: pathlib.Path):
+def download_youtube(url: str, out_dir: pathlib.Path, node_path: str | None = None):
     """Download a YouTube video+audio and merge into a single mp4 in out_dir.
 
     Returns (local mp4 path, video title or None). Reuses an existing download
@@ -77,6 +78,16 @@ def download_youtube(url: str, out_dir: pathlib.Path):
         "no_warnings": True,
         "noprogress": True,
     }
+
+    if node_path:
+        # YouTube needs a JS runtime (EJS). The app passes its own Electron
+        # binary, which acts as Node only with ELECTRON_RUN_AS_NODE=1
+        # (harmless for a real node binary).
+        os.environ["ELECTRON_RUN_AS_NODE"] = "1"
+        ydl_opts["js_runtimes"] = {"node": {"path": str(node_path)}}
+        events.log(f"yt-dlp JS runtime: node at {node_path}")
+    else:
+        events.log("yt-dlp JS runtime: none provided (--node-path not given)")
 
     events.log(f"Downloading {url} …")
     title = None
