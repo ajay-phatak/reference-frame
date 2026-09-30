@@ -97,9 +97,9 @@ export function renderRunBlock(opts: {
 
 export function renderCoachBlock(opts: { date: string; prose: string; gaps: CoachGap[] }): string {
   const { date, prose, gaps } = opts
-  const lines = [`## Coach's read (${date})`, '', prose.trim()]
+  const lines = [`## Insights (${date})`, '', prose.trim()]
   if (gaps.length > 0) {
-    lines.push('', '### Suggested focuses')
+    lines.push('', '### Questions to bring to a lesson')
     for (const g of gaps) lines.push(`- **${g.gap}** — ${g.suggestion}`)
   }
   return lines.join('\n')

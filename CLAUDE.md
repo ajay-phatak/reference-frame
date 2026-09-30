@@ -64,6 +64,10 @@ PyInstaller sidecar. Windows-first. AGPL-3.0.
   STRIPPED from the child env so it can't silently bill API credits; the
   prompt goes over stdin (never argv); cwd is an isolated directory. Never
   lift Claude Code's OAuth token for direct API calls (ToS).
+- The AI feature's user-facing name is "Insights" (observations + questions
+  to bring to a teacher; never prescribes drills/fixes — see
+  `prompts/coach-system.md`); code identifiers, IPC channels, config keys,
+  files and notes marker kinds stay `coach*`.
 
 ## Licensing invariants (load-bearing — do not "optimize" these away)
 
