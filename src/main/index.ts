@@ -72,7 +72,11 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Chromium clamps timers in hidden/minimized windows (down to ~1/min
+      // after 5 min), so engine progress looked frozen until refocus. The
+      // renderer only flushes buffered progress every 100ms — cheap to keep.
+      backgroundThrottling: false
     }
   })
 
