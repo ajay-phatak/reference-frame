@@ -286,8 +286,35 @@ _HANDLERS = {
 }
 
 
+def _opt_out_of_power_throttling():
+    """Windows 11 treats a windowless child of an unfocused app as background
+    work (EcoQoS): lower clocks and, on hybrid CPUs, E-cores — analysis ran
+    visibly slower whenever the app wasn't focused. Opt the process out of
+    execution-speed throttling. Best-effort; no-op elsewhere / on old Windows."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _PowerThrottlingState(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG),
+                        ("ControlMask", wintypes.ULONG),
+                        ("StateMask", wintypes.ULONG)]
+
+        # ControlMask=EXECUTION_SPEED with StateMask=0 -> always HighQoS.
+        state = _PowerThrottlingState(1, 0x1, 0x0)
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.SetProcessInformation(k32.GetCurrentProcess(), 4,  # ProcessPowerThrottling
+                                  ctypes.byref(state), ctypes.sizeof(state))
+    except Exception:                          # noqa: BLE001 — purely a perf hint
+        pass
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    _opt_out_of_power_throttling()
 
     if "--ndjson" in argv:
         argv.remove("--ndjson")
