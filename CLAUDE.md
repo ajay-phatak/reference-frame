@@ -114,7 +114,8 @@ arm64 reports not promised byte-identical to Windows). v0.4.0 tagged
 (57 entries, user-reviewed explainers) + structured report cards, gap
 bars with multi-pro bands, run A/B Compare view, analyze queue (FIFO
 mutex over all engine work, queued status, client-token-tagged engine
-events); plus yt-dlp 2026.7.4 bump (YouTube 403s — the one allowed
+events); plus yt-dlp 2026.7.4 bump (YouTube 403s again at 2026.7.4 by
+Sept; 0.4.1 pins 2026.8.19 — the one allowed
 engine-dep deviation, download-only) and a leader/follower noun pass.
 CAVEAT: tagged with the release-checklist human pass only partially
 done (user's call, time-boxed) — v0.4.1 owes the remaining verification
