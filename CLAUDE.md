@@ -134,7 +134,10 @@ engine-dep deviation, download-only) and a leader/follower noun pass.
 CAVEAT: tagged with the release-checklist human pass only partially
 done (user's call, time-boxed) — v0.4.1 owes the remaining verification
 (queue with 3 videos incl. URL source, kill-mid-queue sweep, old-run
-degraded rendering) plus any debugging that falls out. Backlog:
+degraded rendering) plus any debugging that falls out. Next big
+release: fully on-device iOS app (SwiftUI, Swift pipeline, iOS pros
+compare only against iOS-analyzed pros) — planning in docs/plan-ios.md,
+P0 spikes first. Backlog:
 video playback with beat-synced seeking (target 0.5.0); cross-run
 trends dashboard + Progress.md metrics trend table (post-0.5.0); real
 mac signing/notarization; hub-backlink retrieval upgrade (0.3.0 plan

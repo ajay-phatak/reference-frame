@@ -26,3 +26,8 @@ models/
 # OS / editor
 Thumbs.db
 .DS_Store
+
+# iOS spike fixtures are derived from CC-BY-NC weights and/or personal video —
+# regenerate locally with ios/tools/vp3d_fixtures.py, never commit.
+ios/tools/fixtures/
+ios/**/*.bin
